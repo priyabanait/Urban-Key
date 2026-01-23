@@ -29,21 +29,32 @@ const app = express();
 const httpServer = createServer(app);
 
 // ---------------- SOCKET.IO ----------------
-const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-    credentials: true
-  }
-});
-
-app.locals.io = io;
-
-io.on('connection', (socket) => {
-  console.log('🔌 Socket connected:', socket.id);
-  socket.on('disconnect', () => {
-    console.log('❌ Socket disconnected:', socket.id);
+// Socket.IO only works in non-serverless environments
+let io;
+if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_WEBSOCKETS === 'true') {
+  io = new Server(httpServer, {
+    cors: {
+      origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+      credentials: true
+    }
   });
-});
+
+  app.locals.io = io;
+
+  io.on('connection', (socket) => {
+    console.log('🔌 Socket connected:', socket.id);
+    socket.on('disconnect', () => {
+      console.log('❌ Socket disconnected:', socket.id);
+    });
+  });
+} else {
+  // Mock io for serverless environments
+  app.locals.io = {
+    emit: () => {},
+    to: () => ({ emit: () => {} })
+  };
+  console.log('⚠️  Socket.IO disabled in serverless mode');
+}
 
 // ---------------- MIDDLEWARE ----------------
 app.use(cors({
@@ -88,6 +99,25 @@ app.use('/api/residents', residentRoutes);
 app.use('/api/family-members', familyMemberRoutes);
 app.use('/api/amenity-bookings', amenityBookingRoutes);
 
+// Root route
+app.get('/', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Society Gate Management API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      auth: '/api/auth',
+      users: '/api/users',
+      residents: '/api/residents',
+      towers: '/api/towers',
+      flats: '/api/flats',
+      amenities: '/api/amenities',
+      bookings: '/api/amenity-bookings'
+    }
+  });
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ success: true, message: 'Server running' });
@@ -104,6 +134,13 @@ app.use((err, req, res, next) => {
 
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 5000;
-httpServer.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+  httpServer.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
+}
+
+// Export for Vercel serverless
+export default app;
