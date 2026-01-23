@@ -76,9 +76,28 @@ app.use((req, res, next) => {
 app.use(morgan('dev'));
 
 // ---------------- DATABASE ----------------
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('✅ MongoDB Connected'))
-  .catch(err => console.error('❌ MongoDB Error:', err));
+// Import the connection helper
+import connectDB from './config/db.js';
+
+// Connect to MongoDB (serverless-friendly)
+if (process.env.NODE_ENV !== 'production') {
+  // Development: connect once at startup
+  connectDB().catch(err => console.error('❌ MongoDB Error:', err));
+} else {
+  // Production (Vercel): connection happens per request via middleware
+  app.use(async (req, res, next) => {
+    try {
+      await connectDB();
+      next();
+    } catch (err) {
+      console.error('Database connection error:', err);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database connection failed' 
+      });
+    }
+  });
+}
 
 // ---------------- ROUTES ----------------
 app.use('/api/auth', authRoutes);

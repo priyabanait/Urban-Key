@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Vercel Environment Variables - Add these in Vercel Dashboard
+# Go to: Project Settings → Environment Variables
+
+echo "=== Required Environment Variables for Vercel ==="
+echo ""
+echo "Variable Name: MONGODB_URI"
+echo "Value: mongodb+srv://priyabanait151:priya123@cluster0.vikgunr.mongodb.net/society-gate?retryWrites=true&w=majority"
+echo ""
+echo "Variable Name: JWT_SECRET"
+echo "Value: your_jwt_secret_key_change_this_in_production"
+echo ""
+echo "Variable Name: JWT_EXPIRE"
+echo "Value: 7d"
+echo ""
+echo "Variable Name: NODE_ENV"
+echo "Value: production"
+echo ""
+echo "Variable Name: CORS_ORIGIN"
+echo "Value: https://urbankey-five.vercel.app"
+echo ""
+echo "=== Important Notes ==="
+echo "1. Make sure ALL variables are added to ALL environments (Production, Preview, Development)"
+echo "2. MongoDB connection string MUST include the database name 'society-gate'"
+echo "3. After adding variables, redeploy the project"
+echo ""
+echo "=== MongoDB Connection Issues? ==="
+echo "• Check if your IP is whitelisted in MongoDB Atlas (use 0.0.0.0/0 for all IPs)"
+echo "• Verify the connection string includes ?retryWrites=true&w=majority"
+echo "• Make sure database name 'society-gate' is in the connection string"
