@@ -57,6 +57,31 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_WEBSOCKETS === '
 }
 
 // ---------------- MIDDLEWARE ----------------
+// ---------------- DATABASE ----------------
+// Import the connection helper (must be before routes)
+import connectDB from './config/db.js';
+
+// Connect to MongoDB immediately
+if (process.env.NODE_ENV !== 'production') {
+  // Development: connect once at startup
+  connectDB().catch(err => console.error('❌ MongoDB Error:', err));
+}
+
+// Database connection middleware for all requests (especially important in serverless)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('❌ Database connection error:', err);
+    return res.status(503).json({ 
+      success: false, 
+      message: 'Database connection failed. Please try again later.',
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
+
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
   credentials: true
@@ -74,30 +99,6 @@ app.use((req, res, next) => {
 });
 
 app.use(morgan('dev'));
-
-// ---------------- DATABASE ----------------
-// Import the connection helper
-import connectDB from './config/db.js';
-
-// Connect to MongoDB (serverless-friendly)
-if (process.env.NODE_ENV !== 'production') {
-  // Development: connect once at startup
-  connectDB().catch(err => console.error('❌ MongoDB Error:', err));
-} else {
-  // Production (Vercel): connection happens per request via middleware
-  app.use(async (req, res, next) => {
-    try {
-      await connectDB();
-      next();
-    } catch (err) {
-      console.error('Database connection error:', err);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Database connection failed' 
-      });
-    }
-  });
-}
 
 // ---------------- ROUTES ----------------
 app.use('/api/auth', authRoutes);
