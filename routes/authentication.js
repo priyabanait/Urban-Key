@@ -14,279 +14,114 @@ const SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
  * Handles both user creation and complete profile registration in one call
  */
 router.post('/signup', async (req, res) => {
-	try {
-		const { mobile, otp, username, residentData } = req.body;
+  try {
+    const { password, mobile, fullName, email } = req.body;
 
-		if (!mobile || !otp) {
-			return res.status(400).json({ message: 'Mobile and OTP are required.' });
-		}
+    // ✅ Validate required fields
+    if (!password || !mobile || !fullName || !email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password, mobile, full name and email are required.'
+      });
+    }
 
-		// Check if mobile number already exists
-		const existingUser = await User.findOne({ mobile });
-		if (existingUser) {
-			return res.status(400).json({ message: 'Mobile number already registered.' });
-		}
+    // ✅ Check if mobile already exists
+    const existingUser = await User.findOne({ mobile });
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mobile number already registered.'
+      });
+    }
 
-		// Check if resident profile exists
-		const existingResident = await Resident.findOne({ mobile });
-		if (existingResident) {
-			return res.status(400).json({ message: 'Resident profile already exists with this mobile number.' });
-		}
+    // ✅ Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-		// Create new user with OTP
-		const user = new User({
-			username: username || undefined,
-			mobile,
-			password: otp,
-			registrationCompleted: residentData ? true : false,
-			status: residentData ? 'pending' : 'active'
-		});
+    // ✅ Create User (username removed)
+    const user = await User.create({
+      mobile,
+      email,
+      fullName,
+      password: hashedPassword,
+      role: 'resident',
+      registrationCompleted: true,
+      status: 'pending'
+    });
 
-		await user.save();
+    // ✅ Save Notification
+    try {
+      await Notification.create({
+        type: 'new_resident',
+        title: 'New Resident Registration',
+        message: `${fullName} registered with mobile ${mobile}`,
+        payload: { userId: user._id },
+        read: false
+      });
+    } catch (err) {
+      console.error('Notification save failed:', err);
+    }
 
-		// If resident data is provided, create resident profile
-		let resident = null;
-		if (residentData) {
-			resident = await Resident.create({
-				...residentData,
-				mobile,
-				isNewMember: false,
-				registrationCompleted: true,
-				approvedByAdmin: false
-			});
+    // ✅ Emit socket event
+    try {
+      const io = req.app?.locals?.io;
+      if (io) {
+        io.to('dashboard').emit('dashboard_notification', {
+          type: 'new_resident',
+          title: 'New Resident Registration',
+          message: `${fullName} completed registration`,
+          userId: user._id
+        });
+      }
+    } catch (err) {
+      console.error('Socket emit failed:', err);
+    }
 
-			// Link user to resident
-			user.flat = resident._id;
-			user.role = 'resident';
-			await user.save();
-		}
+    // ✅ Generate JWT
+    const token = jwt.sign(
+      {
+        id: user._id,
+        mobile: user.mobile,
+        role: user.role
+      },
+      SECRET,
+      { expiresIn: '30d' }
+    );
 
-		// Save notification
-		try {
-			await Notification.create({
-				type: 'new_user',
-				title: resident ? 'New Resident Registration' : 'New User Signup',
-				message: resident 
-					? `${residentData.fullName} completed registration (${mobile})`
-					: `${username || mobile} signed up (OTP).`,
-				payload: { userId: user._id, user, resident },
-				read: false
-			});
-		} catch (err) {
-			console.error('Notification save failed:', err);
-		}
+    return res.status(201).json({
+      success: true,
+      message: 'Registration successful. Awaiting admin approval.',
+      token,
+      user: {
+        id: user._id,
+        mobile: user.mobile,
+        email: user.email,
+        fullName: user.fullName,
+        status: user.status,
+        role: user.role
+      }
+    });
 
-		// Emit dashboard notification
-		try {
-			const io = req.app?.locals?.io;
-			if (io) {
-				io.to('dashboard').emit('dashboard_notification', {
-					type: resident ? 'new_resident' : 'new_user',
-					title: resident ? 'New Resident Registration' : 'New User Signup',
-					message: resident 
-						? `${residentData.fullName} completed registration`
-						: `${username || mobile} signed up.`,
-					userId: user._id,
-					user,
-					resident
-				});
-			}
-		} catch (emitErr) {
-			console.error('Socket emit failed:', emitErr);
-		}
-
-		// Generate JWT token
-		const token = jwt.sign(
-			{
-				id: user._id,
-				username: user.username,
-				mobile: user.mobile,
-				type: user.role || 'user'
-			},
-			SECRET,
-			{ expiresIn: '30d' }
-		);
-
-		return res.status(201).json({
-			success: true,
-			message: resident ? 'Registration completed successfully. Awaiting admin approval.' : 'Signup successful.',
-			token,
-			user: {
-				id: user._id,
-				username: user.username,
-				mobile: user.mobile,
-				registrationCompleted: user.registrationCompleted,
-				status: user.status,
-				role: user.role
-			},
-			resident: resident ? {
-				id: resident._id,
-				fullName: resident.fullName,
-				societyName: resident.societyName,
-				flatNumber: resident.flatNumber,
-				approvedByAdmin: resident.approvedByAdmin
-			} : null
-		});
-	} catch (error) {
-		console.error('Unified signup/registration error:', error);
-		return res.status(500).json({ 
-			success: false,
-			message: 'Server error during signup/registration.',
-			error: error.message 
-		});
-	}
+  } catch (error) {
+    console.error('Signup error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during signup.',
+      error: error.message
+    });
+  }
 });
 
-/**
- * Complete Registration (After Basic Signup)
- * User first signs up with OTP, then completes registration with same mobile
- */
-router.post('/complete-registration', async (req, res) => {
-	try {
-		const { mobile, residentData } = req.body;
 
-		if (!mobile) {
-			return res.status(400).json({ 
-				success: false,
-				message: 'Mobile number is required.' 
-			});
-		}
 
-		if (!residentData) {
-			return res.status(400).json({ 
-				success: false,
-				message: 'Resident data is required for registration.' 
-			});
-		}
 
-		// Find existing user by mobile
-		const user = await User.findOne({ mobile });
-		if (!user) {
-			return res.status(404).json({ 
-				success: false,
-				message: 'User not found. Please sign up first.' 
-			});
-		}
 
-		// Check if user already completed registration
-		if (user.registrationCompleted) {
-			return res.status(400).json({ 
-				success: false,
-				message: 'Registration already completed for this mobile number.' 
-			});
-		}
 
-		// Check if resident profile already exists
-		const existingResident = await Resident.findOne({ mobile });
-		if (existingResident) {
-			return res.status(400).json({ 
-				success: false,
-				message: 'Resident profile already exists with this mobile number.' 
-			});
-		}
-
-		// Create resident profile
-		const resident = await Resident.create({
-			...residentData,
-			mobile,
-			isNewMember: false,
-			registrationCompleted: true,
-			approvedByAdmin: false
-		});
-
-		// Update user record
-		user.registrationCompleted = true;
-		user.status = 'pending';
-		user.role = 'resident';
-		user.flat = resident._id;
-		await user.save();
-
-		// Save notification
-		try {
-			await Notification.create({
-				type: 'new_resident',
-				title: 'New Resident Registration',
-				message: `${residentData.fullName} completed registration (${mobile})`,
-				payload: { userId: user._id, user, resident },
-				read: false
-			});
-		} catch (err) {
-			console.error('Notification save failed:', err);
-		}
-
-		// Emit dashboard notification
-		try {
-			const io = req.app?.locals?.io;
-			if (io) {
-				io.to('dashboard').emit('dashboard_notification', {
-					type: 'new_resident',
-					title: 'New Resident Registration',
-					message: `${residentData.fullName} completed registration`,
-					userId: user._id,
-					user,
-					resident
-				});
-			}
-		} catch (emitErr) {
-			console.error('Socket emit failed:', emitErr);
-		}
-
-		// Generate new JWT token with updated user info
-		const token = jwt.sign(
-			{
-				id: user._id,
-				username: user.username,
-				mobile: user.mobile,
-				type: user.role
-			},
-			SECRET,
-			{ expiresIn: '30d' }
-		);
-
-		return res.status(200).json({
-			success: true,
-			message: 'Registration completed successfully. Awaiting admin approval.',
-			token,
-			user: {
-				id: user._id,
-				username: user.username,
-				mobile: user.mobile,
-				registrationCompleted: user.registrationCompleted,
-				status: user.status,
-				role: user.role
-			},
-			resident: {
-				id: resident._id,
-				fullName: resident.fullName,
-				societyName: resident.societyName,
-				flatNumber: resident.flatNumber,
-				approvedByAdmin: resident.approvedByAdmin
-			}
-		});
-	} catch (error) {
-		console.error('Complete registration error:', error);
-		return res.status(500).json({ 
-			success: false,
-			message: 'Server error during registration.',
-			error: error.message 
-		});
-	}
-});
-
-/**
- * Backward Compatibility: Old signup-otp endpoint
- * Redirects to the new unified signup endpoint
- */
 router.post('/signup-otp', async (req, res) => {
 	// Simply call the unified signup without resident data
 	req.body.residentData = null;
 	return router.handle({ ...req, url: '/signup', method: 'POST' }, res);
 });
 
-/**
- * User Login with OTP
- * Returns user and resident data if available
- */
 router.post('/login-otp', async (req, res) => {
 	try {
 		const { mobile, otp } = req.body;
@@ -353,6 +188,81 @@ router.post('/login-otp', async (req, res) => {
 		});
 	}
 });
+
+router.post('/login', async (req, res) => {
+  try {
+    const { username, mobile, password } = req.body;
+
+    if ((!username && !mobile) || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username or mobile and password are required.'
+      });
+    }
+
+    // 🔍 Find user by username OR mobile
+    const user = await User.findOne({
+      $or: [
+        username ? { username } : null,
+        mobile ? { mobile } : null
+      ].filter(Boolean)
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials.'
+      });
+    }
+
+    // 🔐 Compare password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials.'
+      });
+    }
+
+    // 🔑 Generate token
+    const token = jwt.sign(
+      {
+        id: user._id,
+        username: user.username,
+        mobile: user.mobile,
+        role: user.role
+      },
+      SECRET,
+      { expiresIn: '30d' }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Login successful.',
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        mobile: user.mobile,
+        email: user.email,
+        fullName: user.fullName, // keep if User still has fullName
+        role: user.role,
+        status: user.status,
+        registrationCompleted: user.registrationCompleted
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error during login.',
+      error: error.message
+    });
+  }
+});
+
+
 /**
  * Forgot Password / Reset Password
  */

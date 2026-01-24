@@ -6,11 +6,11 @@ const amenitySchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  type: {
-    type: String,
-    enum: ['Gym', 'Swimming Pool', 'Clubhouse', 'Sports Court', 'Garden', 'Party Hall', 'Other'],
-    required: true
-  },
+ type: {
+  type: String,
+  required: true,
+  trim: true
+},
   description: {
     type: String,
     trim: true

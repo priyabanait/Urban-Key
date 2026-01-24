@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 
 // Routes
+import sliderRoutes from './routes/sliders.js';
 import amenityBookingRoutes from './routes/amenityBookingRoutes.js';
 import amenityRoutes from './routes/amenityRoutes.js';
 import announcementRoutes from './routes/announcementRoutes.js';
@@ -101,6 +102,7 @@ app.use((req, res, next) => {
 app.use(morgan('dev'));
 
 // ---------------- ROUTES ----------------
+app.use('/api/sliders', sliderRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticationRoutes);
 app.use('/api/managers', authRoutes);

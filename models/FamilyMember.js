@@ -17,11 +17,11 @@ const familyMemberSchema = new mongoose.Schema({
     required: [true, 'Name is required'],
     trim: true
   },
-  relation: {
-    type: String,
-    enum: ['Spouse', 'Child', 'Parent', 'Sibling', 'Other'],
-    required: true
-  },
+ relation: {
+  type: String,
+  required: true,
+  trim: true
+},
   age: {
     type: Number,
     min: 0

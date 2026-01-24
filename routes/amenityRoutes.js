@@ -84,7 +84,7 @@ router.post('/', async (req, res) => {
       bookingRules
     } = req.body;
 
-    // Validate required fields
+    // ✅ Validate required fields only
     if (!name || !type) {
       return res.status(400).json({
         success: false,
@@ -92,19 +92,13 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Validate type enum
-    const validTypes = ['Gym', 'Swimming Pool', 'Clubhouse', 'Sports Court', 'Garden', 'Party Hall', 'Other'];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid type. Must be one of: ${validTypes.join(', ')}`
-      });
-    }
+    // ❌ REMOVED enum validation for type
+    // (type can now be any string)
 
-    // Check if amenity already exists in the society (if society provided)
+    // ✅ Check if amenity already exists in the society
     const existingAmenity = await Amenity.findOne({
       name: { $regex: new RegExp(`^${name}$`, 'i') },
-      ...(societyId ? { society: societyId } : {}) // only filter by society if provided
+      ...(societyId ? { society: societyId } : {})
     });
 
     if (existingAmenity) {
@@ -114,22 +108,20 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Create amenity
-    const amenity = new Amenity({
+    // ✅ Create amenity
+    const amenity = await Amenity.create({
       name,
-      type,
+      type: type.trim(), // optional cleanup
       description,
       society: societyId || null,
       location,
       capacity,
       timings,
       amenityImage,
-      bookingRequired: bookingRequired !== undefined ? bookingRequired : true,
-      isActive: isActive !== undefined ? isActive : true,
+      bookingRequired: bookingRequired ?? true,
+      isActive: isActive ?? true,
       bookingRules: bookingRules || {}
     });
-
-    await amenity.save();
 
     res.status(201).json({
       success: true,
