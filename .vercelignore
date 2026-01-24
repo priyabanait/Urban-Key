@@ -1,0 +1,13 @@
+*.md
+.env.local
+.env.*.local
+*.test.js
+check-*.js
+create-*.js
+seed*.js
+get-*.js
+link-*.js
+POSTMAN_EXAMPLE.md
+TEST_AMENITY_BOOKING.md
+FAMILY_MEMBER_BOOKING_TEST_GUIDE.md
+VERCEL_ENV_CHECKLIST.sh

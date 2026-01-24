@@ -6,6 +6,9 @@ import morgan from 'morgan';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 
+// Load environment variables
+dotenv.config();
+
 // Routes
 import sliderRoutes from './routes/sliders.js';
 import amenityBookingRoutes from './routes/amenityBookingRoutes.js';
@@ -24,7 +27,25 @@ import residentRoutes from './routes/residentRoutes.js';
 import towerRoutes from './routes/towerRoutes.js';
 import visitorRoutes from './routes/visitorRoutes.js';
 
-dotenv.config();
+// Import the connection helper
+import connectDB from './config/db.js';
+
+// Validate critical environment variables
+const validateEnv = () => {
+  const required = ['MONGODB_URI', 'JWT_SECRET', 'CORS_ORIGIN'];
+  const missing = required.filter(env => !process.env[env]);
+  
+  if (missing.length > 0) {
+    console.warn(`⚠️  Missing environment variables: ${missing.join(', ')}`);
+    if (process.env.NODE_ENV === 'production') {
+      // In production, missing variables are critical
+      const err = new Error(`Missing required environment variables: ${missing.join(', ')}`);
+      console.error(err);
+    }
+  }
+};
+
+validateEnv();
 
 const app = express();
 const httpServer = createServer(app);
@@ -70,14 +91,19 @@ if (process.env.NODE_ENV !== 'production') {
 
 // Database connection middleware for all requests (especially important in serverless)
 app.use(async (req, res, next) => {
+  // Skip connection for health check in serverless
+  if (req.path === '/health') {
+    return next();
+  }
+  
   try {
     await connectDB();
     next();
   } catch (err) {
-    console.error('❌ Database connection error:', err);
+    console.error('❌ Database connection error:', err.message);
     return res.status(503).json({ 
       success: false, 
-      message: 'Database connection failed. Please try again later.',
+      message: 'Database connection failed',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
@@ -142,7 +168,12 @@ app.get('/', (req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ success: true, message: 'Server running' });
+  res.status(200).json({ 
+    success: true, 
+    message: 'Server running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV
+  });
 });
 
 // ---------------- ERROR HANDLER ----------------
@@ -164,5 +195,5 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-// Export for Vercel serverless
+// Export for Vercel serverless - CRITICAL: must export the app directly for Vercel
 export default app;
