@@ -8,22 +8,19 @@ const router = express.Router();
 import path from 'path';
 import { uploadToCloudinary } from '../config/cloudinary.js';
 // Multer setup for file uploads
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage() });
 /* ================== UPLOAD FILE TO CLOUDINARY (SECURE) ================== */
 router.post('/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const isVideo = req.body.isVideo === 'true' || req.body.isVideo === true;
-    const filePath = req.file.path;
-    // Read file as base64
-    const fileData = await fs.readFile(filePath);
+    // Use buffer directly from memory storage
+    const fileData = req.file.buffer;
     const base64String = `data:${req.file.mimetype};base64,${fileData.toString('base64')}`;
     // Generate a unique publicId
     const publicId = `sliders/${Date.now()}_${req.file.originalname.replace(/\s+/g, '_')}`;
     // Upload to Cloudinary
     const result = await uploadToCloudinary(base64String, publicId);
-    // Remove temp file
-    await fs.unlink(filePath);
 
     // Create slider in DB
     const slider = new Slider({
