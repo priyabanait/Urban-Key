@@ -1,18 +1,47 @@
-import express from 'express';
 import multer from 'multer';
+import { promises as fs } from 'fs';
+import express from 'express';
 import cloudinary from '../config/cloudinary.js';
 import Slider from '../models/Slider.js';
 
 const router = express.Router();
+import path from 'path';
+import { uploadToCloudinary } from '../config/cloudinary.js';
+// Multer setup for file uploads
+const upload = multer({ dest: 'uploads/' });
+/* ================== UPLOAD FILE TO CLOUDINARY (SECURE) ================== */
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const isVideo = req.body.isVideo === 'true' || req.body.isVideo === true;
+    const filePath = req.file.path;
+    // Read file as base64
+    const fileData = await fs.readFile(filePath);
+    const base64String = `data:${req.file.mimetype};base64,${fileData.toString('base64')}`;
+    // Generate a unique publicId
+    const publicId = `sliders/${Date.now()}_${req.file.originalname.replace(/\s+/g, '_')}`;
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(base64String, publicId);
+    // Remove temp file
+    await fs.unlink(filePath);
 
-// Multer setup (in-memory storage)
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 50MB max
+    // Create slider in DB
+    const slider = new Slider({
+      imageUrl: result.secure_url,
+      publicId: result.public_id,
+      isVideo: isVideo,
+      active: true
+    });
+    await slider.save();
+
+    res.status(201).json(slider);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ================== GET ALL SLIDERS ==================
+
+/* ================== GET ALL SLIDERS ================== */
 router.get('/', async (req, res) => {
   try {
     const sliders = await Slider.find().sort({ createdAt: -1 });
@@ -22,7 +51,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ================== GET IMAGE SLIDERS ==================
+/* ================== GET IMAGE SLIDERS ================== */
 router.get('/images', async (req, res) => {
   try {
     const images = await Slider.find({ isVideo: false }).sort({ createdAt: -1 });
@@ -32,7 +61,7 @@ router.get('/images', async (req, res) => {
   }
 });
 
-// ================== GET VIDEO SLIDERS ==================
+/* ================== GET VIDEO SLIDERS ================== */
 router.get('/videos', async (req, res) => {
   try {
     const videos = await Slider.find({ isVideo: true }).sort({ createdAt: -1 });
@@ -42,64 +71,38 @@ router.get('/videos', async (req, res) => {
   }
 });
 
-// ================== UPLOAD SLIDER (IMAGE / VIDEO) ==================
-router.post('/upload', upload.single('file'), async (req, res) => {
+/* ================== CREATE SLIDER (URL ONLY) ================== */
+router.post('/', async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'File is required' });
+    const { imageUrl, publicId, isVideo, active } = req.body;
+
+    if (!imageUrl || !publicId) {
+      return res.status(400).json({ error: 'imageUrl and publicId required' });
     }
 
-    const isVideo = req.body.isVideo === 'true';
-    const active = req.body.active !== 'false';
+    const slider = new Slider({
+      imageUrl,
+      publicId,
+      isVideo: Boolean(isVideo),
+      active: active !== false
+    });
 
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        resource_type: isVideo ? 'video' : 'image',
-        folder: 'sliders'
-      },
-      async (error, uploaded) => {
-        if (error) {
-          return res.status(500).json({ error: error.message });
-        }
-
-        const slider = new Slider({
-          imageUrl: uploaded.secure_url,
-          active,
-          isVideo
-        });
-
-        await slider.save();
-        return res.status(201).json(slider);
-      }
-    );
-
-    stream.end(req.file.buffer);
+    await slider.save();
+    res.status(201).json(slider);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ================== DELETE SLIDER ==================
-router.delete('/:id', async (req, res) => {
-  try {
-    const slider = await Slider.findById(req.params.id);
-    if (!slider) return res.status(404).json({ error: 'Slider not found' });
-
-    await slider.deleteOne();
-    res.json({ message: 'Deleted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ================== TOGGLE ACTIVE ==================
+/* ================== TOGGLE ACTIVE ================== */
 router.patch('/:id', async (req, res) => {
   try {
     const slider = await Slider.findById(req.params.id);
     if (!slider) return res.status(404).json({ error: 'Slider not found' });
 
-    slider.active =
-      req.body.active !== undefined ? req.body.active : slider.active;
+    if (typeof req.body.active === 'boolean') {
+      slider.active = req.body.active;
+    }
 
     await slider.save();
     res.json(slider);
@@ -107,5 +110,27 @@ router.patch('/:id', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/* ================== DELETE SLIDER ================== */
+router.delete('/:id', async (req, res) => {
+  try {
+    const slider = await Slider.findById(req.params.id);
+    if (!slider) return res.status(404).json({ error: 'Slider not found' });
+
+    try {
+      await cloudinary.uploader.destroy(slider.publicId, {
+        resource_type: slider.isVideo ? 'video' : 'image'
+      });
+    } catch (err) {
+      console.error('Cloudinary delete failed:', err.message);
+    }
+
+    await slider.deleteOne();
+    res.status(200).json({ message: 'Deleted successfully', _id: slider._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 export default router;

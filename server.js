@@ -81,7 +81,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_WEBSOCKETS === '
 // ---------------- MIDDLEWARE ----------------
 // ---------------- DATABASE ----------------
 // Import the connection helper (must be before routes)
-import connectDB from './config/db.js';
+
 
 // Connect to MongoDB immediately
 if (process.env.NODE_ENV !== 'production') {
