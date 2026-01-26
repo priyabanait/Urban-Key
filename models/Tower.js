@@ -26,6 +26,16 @@ const towerSchema = new mongoose.Schema({
     ref: 'Society',
     required: true
   },
+  cityId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'City',
+    required: false
+  },
+  address: {
+    type: String,
+    trim: true,
+    required: false
+  },
   isActive: {
     type: Boolean,
     default: true

@@ -1,8 +1,8 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
+import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 
@@ -11,6 +11,7 @@ dotenv.config();
 
 // Routes
 import sliderRoutes from './routes/sliders.js';
+import citiesRouter from './routes/city.js';
 import amenityBookingRoutes from './routes/amenityBookingRoutes.js';
 import amenityRoutes from './routes/amenityRoutes.js';
 import announcementRoutes from './routes/announcementRoutes.js';
@@ -27,20 +28,18 @@ import residentRoutes from './routes/residentRoutes.js';
 import towerRoutes from './routes/towerRoutes.js';
 import visitorRoutes from './routes/visitorRoutes.js';
 
-// Import the connection helper
+// DB connection helper
 import connectDB from './config/db.js';
 
-// Validate critical environment variables
+// ---------------- ENV VALIDATION ----------------
 const validateEnv = () => {
-  const required = ['MONGODB_URI', 'JWT_SECRET', 'CORS_ORIGIN'];
+  const required = ['MONGODB_URI', 'JWT_SECRET'];
   const missing = required.filter(env => !process.env[env]);
-  
-  if (missing.length > 0) {
-    console.warn(`⚠️  Missing environment variables: ${missing.join(', ')}`);
+
+  if (missing.length) {
+    console.warn(`⚠️ Missing env vars: ${missing.join(', ')}`);
     if (process.env.NODE_ENV === 'production') {
-      // In production, missing variables are critical
-      const err = new Error(`Missing required environment variables: ${missing.join(', ')}`);
-      console.error(err);
+      throw new Error(`Missing required env vars: ${missing.join(', ')}`);
     }
   }
 };
@@ -50,13 +49,31 @@ validateEnv();
 const app = express();
 const httpServer = createServer(app);
 
+// ---------------- CORS (✅ FIX) ----------------
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173'
+  // add production frontend URL here later
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
+
 // ---------------- SOCKET.IO ----------------
-// Socket.IO only works in non-serverless environments
 let io;
+
 if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_WEBSOCKETS === 'true') {
   io = new Server(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+      origin: allowedOrigins,
       credentials: true
     }
   });
@@ -65,70 +82,56 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_WEBSOCKETS === '
 
   io.on('connection', (socket) => {
     console.log('🔌 Socket connected:', socket.id);
+
     socket.on('disconnect', () => {
       console.log('❌ Socket disconnected:', socket.id);
     });
   });
 } else {
-  // Mock io for serverless environments
   app.locals.io = {
     emit: () => {},
     to: () => ({ emit: () => {} })
   };
-  console.log('⚠️  Socket.IO disabled in serverless mode');
+  console.log('⚠️ Socket.IO disabled (serverless mode)');
 }
 
-// ---------------- MIDDLEWARE ----------------
 // ---------------- DATABASE ----------------
-// Import the connection helper (must be before routes)
-
-
-// Connect to MongoDB immediately
 if (process.env.NODE_ENV !== 'production') {
-  // Development: connect once at startup
-  connectDB().catch(err => console.error('❌ MongoDB Error:', err));
+  connectDB().catch(err =>
+    console.error('❌ MongoDB startup error:', err)
+  );
 }
 
-// Database connection middleware for all requests (especially important in serverless)
 app.use(async (req, res, next) => {
-  // Skip connection for health check in serverless
-  if (req.path === '/health') {
-    return next();
-  }
-  
+  if (req.path === '/health') return next();
+
   try {
     await connectDB();
     next();
   } catch (err) {
-    console.error('❌ Database connection error:', err.message);
-    return res.status(503).json({ 
-      success: false, 
+    console.error('❌ DB connection failed:', err.message);
+    res.status(503).json({
+      success: false,
       message: 'Database connection failed',
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 });
 
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
-  credentials: true
-}));
-
+// ---------------- MIDDLEWARE ----------------
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
 
-// Debug middleware
+// Debug logger
 app.use((req, res, next) => {
   console.log(`📨 ${req.method} ${req.path}`);
-  console.log('Content-Type:', req.headers['content-type']);
-  console.log('Body:', req.body);
   next();
 });
 
-app.use(morgan('dev'));
-
 // ---------------- ROUTES ----------------
 app.use('/api/sliders', sliderRoutes);
+app.use('/api/cities', citiesRouter);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticationRoutes);
 app.use('/api/managers', authRoutes);
@@ -147,29 +150,19 @@ app.use('/api/residents', residentRoutes);
 app.use('/api/family-members', familyMemberRoutes);
 app.use('/api/amenity-bookings', amenityBookingRoutes);
 
-// Root route
+// ---------------- ROOT ----------------
 app.get('/', (req, res) => {
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: 'Society Gate Management API',
-    version: '1.0.0',
-    endpoints: {
-      health: '/health',
-      auth: '/api/auth',
-      users: '/api/users',
-      residents: '/api/residents',
-      towers: '/api/towers',
-      flats: '/api/flats',
-      amenities: '/api/amenities',
-      bookings: '/api/amenity-bookings'
-    }
+    version: '1.0.0'
   });
 });
 
-// Health check
+// ---------------- HEALTH ----------------
 app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    success: true, 
+  res.status(200).json({
+    success: true,
     message: 'Server running',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV
@@ -188,12 +181,11 @@ app.use((err, req, res, next) => {
 // ---------------- START SERVER ----------------
 const PORT = process.env.PORT || 5000;
 
-// For local development
 if (process.env.NODE_ENV !== 'production') {
   httpServer.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`🚀 Server running at http://localhost:${PORT}`);
   });
 }
 
-// Export for Vercel serverless - CRITICAL: must export the app directly for Vercel
+// IMPORTANT: export app for Vercel
 export default app;

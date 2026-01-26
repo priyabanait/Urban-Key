@@ -57,7 +57,7 @@ import mongoose from "mongoose";
 
 router.post("/", validateTower, async (req, res) => {
   try {
-    const { name, totalFloors, flatsPerFloor, societyId } = req.body;
+    const { name, totalFloors, flatsPerFloor, societyId, cityId, address } = req.body;
 
     // ✅ REQUIRED CHECK
     if (!societyId) {
@@ -80,7 +80,9 @@ router.post("/", validateTower, async (req, res) => {
       totalFloors: Number(totalFloors),
       flatsPerFloor: Number(flatsPerFloor),
       totalFlats: Number(totalFloors) * Number(flatsPerFloor),
-      society: societyId
+      society: societyId,
+      cityId: cityId || undefined,
+      address: address || undefined
     });
 
     res.status(201).json({
@@ -112,16 +114,20 @@ router.post("/", validateTower, async (req, res) => {
 // Update tower
 router.put('/:id', validateTower, async (req, res) => {
   try {
-    const { name, totalFloors, flatsPerFloor } = req.body;
-    
+    const { name, totalFloors, flatsPerFloor, cityId, address } = req.body;
+
+    const updateData = {
+      name,
+      totalFloors,
+      flatsPerFloor,
+      totalFlats: totalFloors * flatsPerFloor
+    };
+    if (cityId !== undefined) updateData.cityId = cityId;
+    if (address !== undefined) updateData.address = address;
+
     const tower = await Tower.findByIdAndUpdate(
       req.params.id,
-      {
-        name,
-        totalFloors,
-        flatsPerFloor,
-        totalFlats: totalFloors * flatsPerFloor
-      },
+      updateData,
       { new: true, runValidators: true }
     );
 
