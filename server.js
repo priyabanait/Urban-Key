@@ -10,6 +10,9 @@ import { Server } from 'socket.io';
 dotenv.config();
 
 // Routes
+import serviceRoutes from './routes/service.js';
+import advertisementSliderRoutes from './routes/advertisementSlider.js';
+import testimonialRoutes from './routes/testimonial.js';
 import sliderRoutes from './routes/sliders.js';
 import citiesRouter from './routes/city.js';
 import amenityBookingRoutes from './routes/amenityBookingRoutes.js';
@@ -130,6 +133,13 @@ app.use((req, res, next) => {
 });
 
 // ---------------- ROUTES ----------------
+app.use('/uploads', express.static('uploads')); // serve images
+app.use('/api/services', serviceRoutes);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', express.static('uploads')); // serve images
+app.use('/api/advertisementSlider', advertisementSliderRoutes);
+app.use('/uploads', express.static('uploads'));
 app.use('/api/sliders', sliderRoutes);
 app.use('/api/cities', citiesRouter);
 app.use('/api/auth', authRoutes);
@@ -149,7 +159,7 @@ app.use('/api/members', residentRoutes);
 app.use('/api/residents', residentRoutes);
 app.use('/api/family-members', familyMemberRoutes);
 app.use('/api/amenity-bookings', amenityBookingRoutes);
-
+app.use('/api/testimonials', testimonialRoutes);
 // ---------------- ROOT ----------------
 app.get('/', (req, res) => {
   res.json({

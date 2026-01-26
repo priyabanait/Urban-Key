@@ -13,31 +13,23 @@ router.post('/', async (req, res) => {
   try {
     const { loginId, mobile, fullName, email, buildingName, flatNumber, ownershipType, idProof } = req.body;
 
-    // Verify user exists by loginId or mobile
-    if (!loginId && !mobile) {
+    if (!mobile) {
       return res.status(400).json({
         success: false,
-        message: 'Either loginId or mobile number is required for registration'
+        message: 'Mobile number is required for registration'
       });
     }
 
-    // Find the user by ID or mobile
-    let user;
+    let user = null;
+    // If loginId or mobile exists in users collection, fetch user
     if (loginId) {
       user = await User.findById(loginId);
-    } else if (mobile) {
+    } else {
       user = await User.findOne({ mobile });
     }
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found. Please sign up or login first'
-      });
-    }
-
-    // Check if resident already exists for this user
-    const existingResident = await Resident.findOne({ mobile: user.mobile });
+    // Check if resident already exists for this mobile
+    const existingResident = await Resident.findOne({ mobile });
     if (existingResident) {
       return res.status(400).json({
         success: false,
@@ -45,29 +37,31 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Create resident with user's mobile
+    // Create the resident
     const resident = await Resident.create({
-      fullName: fullName || user.username,
+      fullName: fullName || (user ? user.username : ''),
       email: email,
-      mobile: user.mobile,
+      mobile: mobile,
       buildingName: buildingName,
       flatNumber: flatNumber,
       ownershipType: ownershipType,
       idProof: idProof
     });
 
-    // Update user's registration status
-    user.registrationCompleted = true;
-    user.role = 'resident';
-    await user.save();
+    // If a user exists, update their registration status
+    if (user) {
+      user.registrationCompleted = true;
+      user.role = 'resident';
+      await user.save();
+    }
 
     res.status(201).json({
       success: true,
       message: 'Resident registered successfully',
       data: {
         resident,
-        userId: user._id,
-        mobile: user.mobile
+        userId: user ? user._id : null,
+        mobile: resident.mobile
       }
     });
   } catch (error) {
@@ -79,6 +73,7 @@ router.post('/', async (req, res) => {
     });
   }
 });
+
 
 /**
  * ✅ Get Resident by Mobile
