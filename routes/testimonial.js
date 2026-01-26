@@ -1,30 +1,13 @@
 import express from 'express';
 import multer from 'multer';
-import fs from 'fs';
-import path from 'path';
+import cloudinary from '../config/cloudinary.js';
 import Testimonial from '../models/Testimonials.js';
 
 const router = express.Router();
 
-/* ================= ENSURE UPLOAD DIR EXISTS ================= */
-const uploadDir = 'uploads/testimonials';
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-/* ================= MULTER CONFIG ================= */
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${file.originalname}`;
-    cb(null, uniqueName);
-  }
-});
-
+/* ================= MULTER MEMORY STORAGE ================= */
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
@@ -34,15 +17,36 @@ const upload = multer({
   }
 });
 
+/* ================= CLOUDINARY HELPER ================= */
+const uploadToCloudinary = (buffer, folder) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+};
+
 /* ================= CREATE TESTIMONIAL ================= */
 router.post('/', upload.single('image'), async (req, res) => {
   try {
     const { name, designation, message, rating, isActive } = req.body;
 
     if (!name || !message) {
-      return res.status(400).json({
-        error: 'Name and message are required'
-      });
+      return res.status(400).json({ error: 'Name and message are required' });
+    }
+
+    let image = '';
+    let imagePublicId = '';
+
+    if (req.file) {
+      const result = await uploadToCloudinary(req.file.buffer, 'testimonials');
+      image = result.secure_url;
+      imagePublicId = result.public_id;
     }
 
     const testimonial = await Testimonial.create({
@@ -51,7 +55,8 @@ router.post('/', upload.single('image'), async (req, res) => {
       message,
       rating: rating || 5,
       isActive: isActive ?? true,
-      image: req.file ? `/uploads/testimonials/${req.file.filename}` : ''
+      image,
+      imagePublicId
     });
 
     res.status(201).json(testimonial);
@@ -66,7 +71,7 @@ router.get('/', async (req, res) => {
   try {
     const testimonials = await Testimonial.find().sort({ createdAt: -1 });
     res.json(testimonials);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch testimonials' });
   }
 });
@@ -76,7 +81,7 @@ router.get('/active', async (req, res) => {
   try {
     const testimonials = await Testimonial.find({ isActive: true });
     res.json(testimonials);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Failed to fetch active testimonials' });
   }
 });
@@ -89,7 +94,7 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Testimonial not found' });
     }
     res.json(testimonial);
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Invalid testimonial ID' });
   }
 });
@@ -100,7 +105,9 @@ router.put('/:id', upload.single('image'), async (req, res) => {
     const updateData = { ...req.body };
 
     if (req.file) {
-      updateData.image = `/uploads/testimonials/${req.file.filename}`;
+      const result = await uploadToCloudinary(req.file.buffer, 'testimonials');
+      updateData.image = result.secure_url;
+      updateData.imagePublicId = result.public_id;
     }
 
     const testimonial = await Testimonial.findByIdAndUpdate(
@@ -120,14 +127,21 @@ router.put('/:id', upload.single('image'), async (req, res) => {
   }
 });
 
-/* ================= DELETE ================= */
+/* ================= DELETE (WITH CLOUDINARY CLEANUP) ================= */
 router.delete('/:id', async (req, res) => {
   try {
-    const testimonial = await Testimonial.findByIdAndDelete(req.params.id);
+    const testimonial = await Testimonial.findById(req.params.id);
 
     if (!testimonial) {
       return res.status(404).json({ error: 'Testimonial not found' });
     }
+
+    // 🔥 Delete image from Cloudinary
+    if (testimonial.imagePublicId) {
+      await cloudinary.uploader.destroy(testimonial.imagePublicId);
+    }
+
+    await testimonial.deleteOne();
 
     res.json({ message: 'Testimonial deleted successfully' });
   } catch (error) {

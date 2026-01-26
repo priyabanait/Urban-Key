@@ -1,20 +1,12 @@
 import express from 'express';
 import multer from 'multer';
-import fs from 'fs';
 import AdvertisementSlider from '../models/AdvertisementSlider.js';
+import cloudinary from '../config/cloudinary.js'; // Make sure you have a Cloudinary config
 
 const router = express.Router();
 
-/* ================== ENSURE UPLOAD FOLDER EXISTS ================== */
-const uploadDir = 'uploads/advertisementSlider';
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-/* ================== MULTER CONFIG ================== */
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
-});
-
+/* ================== MULTER CONFIG (IN-MEMORY) ================== */
+const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
@@ -30,12 +22,37 @@ router.post('/', upload.single('image'), async (req, res) => {
     const { title, subtitle, link, isActive } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
 
+    let imageUrl = '';
+    if (req.file) {
+      const result = await cloudinary.uploader.upload_stream(
+        { folder: 'advertisementSlider' },
+        (error, result) => {
+          if (error) throw error;
+          imageUrl = result.secure_url;
+        }
+      ).end(req.file.buffer);
+
+      // Since cloudinary.uploader.upload_stream uses a callback, we can wrap it in a Promise
+      const uploadPromise = new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'advertisementSlider' },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result.secure_url);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+
+      imageUrl = await uploadPromise;
+    }
+
     const slider = await AdvertisementSlider.create({
       title,
       subtitle,
       link,
       isActive: isActive ?? true,
-      image: req.file ? `/uploads/advertisementSlider/${req.file.filename}` : ''
+      image: imageUrl
     });
 
     res.status(201).json(slider);
@@ -70,7 +87,21 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', upload.single('image'), async (req, res) => {
   try {
     const updateData = { ...req.body };
-    if (req.file) updateData.image = `/uploads/advertisementSlider/${req.file.filename}`;
+
+    if (req.file) {
+      const uploadPromise = new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: 'advertisementSlider' },
+          (error, result) => {
+            if (error) return reject(error);
+            resolve(result.secure_url);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+
+      updateData.image = await uploadPromise;
+    }
 
     const slider = await AdvertisementSlider.findByIdAndUpdate(
       req.params.id,

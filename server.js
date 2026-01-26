@@ -133,13 +133,13 @@ app.use((req, res, next) => {
 });
 
 // ---------------- ROUTES ----------------
-app.use('/uploads', express.static('uploads')); // serve images
+
 app.use('/api/services', serviceRoutes);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', express.static('uploads')); // serve images
+
 app.use('/api/advertisementSlider', advertisementSliderRoutes);
-app.use('/uploads', express.static('uploads'));
+
 app.use('/api/sliders', sliderRoutes);
 app.use('/api/cities', citiesRouter);
 app.use('/api/auth', authRoutes);
