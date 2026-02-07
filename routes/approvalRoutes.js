@@ -1,6 +1,6 @@
 import express from 'express';
 import FamilyMember from '../models/FamilyMember.js';
-import Vehicle from '../models/vehicle.js';
+import Vehicle from '../models/Vehicle.js';
 import Maid from '../models/Maid.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 

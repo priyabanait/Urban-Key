@@ -1,7 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import Manager from '../models/manager.js';
+import Manager from '../models/Manager.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
