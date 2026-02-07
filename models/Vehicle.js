@@ -1,33 +1,23 @@
 import mongoose from 'mongoose';
 
 const vehicleSchema = new mongoose.Schema({
-  resident: {
+  residentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Resident',
     required: true
   },
-  flat: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Flat',
-    required: true
+  vehicleType: {
+    type: String,
+    enum: ['Car', 'Bike', 'Scooter', 'Truck', 'Other'],
+    required: [true, 'Vehicle type is required']
   },
   vehicleNumber: {
     type: String,
     required: [true, 'Vehicle number is required'],
     trim: true,
-    uppercase: true,
-    unique: true
+    uppercase: true
   },
-  vehicleType: {
-    type: String,
-    enum: ['Two Wheeler', 'Four Wheeler', 'Other'],
-    required: true
-  },
-  brand: {
-    type: String,
-    trim: true
-  },
-  model: {
+  registrationNumber: {
     type: String,
     trim: true
   },
@@ -35,21 +25,16 @@ const vehicleSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  parkingSlot: {
+  manufacturer: {
     type: String,
     trim: true
   },
-  isApproved: {
-    type: Boolean,
-    default: false
-  },
-  approvedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  },
-  approvedAt: Date
+  parkingSlotNumber: {
+    type: String,
+    trim: true
+  }
 }, {
   timestamps: true
 });
 
-export default mongoose.model('Vehicle', vehicleSchema);
+export default mongoose.models.Vehicle || mongoose.model('Vehicle', vehicleSchema);

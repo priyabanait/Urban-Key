@@ -1,53 +1,41 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
 const ResidentSchema = new mongoose.Schema(
   {
-    fullName: {
-      type: String,
-      required: true,
-      trim: true
-    },
+    fullName: { type: String, required: true },
+    email: { type: String },
+    mobile: { type: String, required: true, unique: true },
 
-    email: {
-      type: String,
-      lowercase: true,
-      trim: true
-    },
+    // ✅ Location
+    city: { type: String, required: true },
+    society: { type: String, required: true }, // society name
 
-    mobile: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true
-    },
-
-    buildingName: {
-      type: String,
-      required: true,
-      trim: true
-    },
-
-    flatNumber: {
-      type: String,
-      required: true,
-      trim: true
-    },
+    tower: { type: String },
+    flatNumber: { type: String, required: true },
 
     ownershipType: {
       type: String,
-      enum: ['Owner', 'Tenant'],
-      required: true
+      enum: ["Owner", "Tenant", "Family Member"],
+      default: "Owner",
     },
 
-    // ✅ ID Proof (Aadhaar / PAN / Passport etc.)
-    idProof: {
-      type: String, // file URL or storage path
-      required: false
-    }
+    moveInDate: { type: Date },
+
+    emergencyContact: {
+      name: String,
+      phone: String,
+      relation: String,
+    },
+
+    idProof: { type: String },
+
+    // Photo
+    photo: { type: String }, // URL or file path
+
+    isActive: { type: Boolean, default: true },
   },
-  {
-    timestamps: true
-  }
+  { timestamps: true }
 );
 
-export default mongoose.model('Resident', ResidentSchema);
+export default mongoose.models.Resident ||
+  mongoose.model("Resident", ResidentSchema);

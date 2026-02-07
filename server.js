@@ -30,6 +30,10 @@ import pollRoutes from './routes/pollRoutes.js';
 import residentRoutes from './routes/residentRoutes.js';
 import towerRoutes from './routes/towerRoutes.js';
 import visitorRoutes from './routes/visitorRoutes.js';
+import vehicleRoutes from './routes/vehicleRoutes.js';
+import petRoutes from './routes/petRoutes.js';
+import dailyHelpRoutes from './routes/dailyHelpRoutes.js';
+import addressRoutes from './routes/addressRoutes.js';
 
 // DB connection helper
 import connectDB from './config/db.js';
@@ -55,17 +59,34 @@ const httpServer = createServer(app);
 // ---------------- CORS (✅ FIX) ----------------
 const allowedOrigins = [
   'http://localhost:5173',
-  'http://127.0.0.1:5173'
-  // add production frontend URL here later
-];
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  process.env.FRONTEND_URL
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allow requests with no origin (like mobile apps, Postman, etc.)
+    if (!origin) {
+      return callback(null, true);
     }
+    
+    // Allow localhost and specified origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Allow Vercel preview and production domains
+    if (origin.includes('.vercel.app') || origin.includes('vercel.app')) {
+      return callback(null, true);
+    }
+    
+    // In production, be more permissive if needed
+    if (process.env.NODE_ENV === 'production') {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true
 }));
@@ -160,6 +181,10 @@ app.use('/api/residents', residentRoutes);
 app.use('/api/family-members', familyMemberRoutes);
 app.use('/api/amenity-bookings', amenityBookingRoutes);
 app.use('/api/testimonials', testimonialRoutes);
+app.use('/api/vehicles', vehicleRoutes);
+app.use('/api/pets', petRoutes);
+app.use('/api/daily-help', dailyHelpRoutes);
+app.use('/api/addresses', addressRoutes);
 // ---------------- ROOT ----------------
 app.get('/', (req, res) => {
   res.json({

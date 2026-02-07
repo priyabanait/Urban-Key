@@ -1,19 +1,18 @@
 import express from 'express';
 import FamilyMember from '../models/FamilyMember.js';
 import Resident from '../models/Resident.js';
-import User from '../models/User.js';
 
 const router = express.Router();
 
-/**
- * ✅ Add a family member
- * POST /api/family-members
- */
+/* =========================================================
+   ✅ ADD SINGLE FAMILY MEMBER (NO LOGIN ID)
+   POST /api/family-members
+========================================================= */
 router.post('/', async (req, res) => {
   try {
-    const { 
-      loginId,
-      mobile,
+    const {
+      residentId,
+      flatId,
       name,
       relation,
       age,
@@ -21,29 +20,14 @@ router.post('/', async (req, res) => {
       phone,
       email,
       password,
-      photo,
-      residentId,
-      flatId
+      photo
     } = req.body;
 
-    if (!loginId && !mobile) {
+    // 🔒 Validations
+    if (!residentId) {
       return res.status(400).json({
         success: false,
-        message: 'Either loginId or mobile is required'
-      });
-    }
-
-    let user;
-    if (loginId) {
-      user = await User.findById(loginId);
-    } else {
-      user = await User.findOne({ mobile });
-    }
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
+        message: 'residentId is required'
       });
     }
 
@@ -54,13 +38,8 @@ router.post('/', async (req, res) => {
       });
     }
 
-    let resident;
-    if (residentId) {
-      resident = await Resident.findById(residentId);
-    } else {
-      resident = await Resident.findOne({ mobile: user.mobile });
-    }
-
+    // 🔎 Find resident
+    const resident = await Resident.findById(residentId);
     if (!resident) {
       return res.status(404).json({
         success: false,
@@ -68,6 +47,7 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // 🧾 Create family member
     const familyMember = await FamilyMember.create({
       resident: resident._id,
       flat: flatId || null,
@@ -80,7 +60,7 @@ router.post('/', async (req, res) => {
       password,
       photo,
       isApproved: false,
-      canLogin: !!(email && password)
+      canLogin: Boolean(email && password)
     });
 
     await familyMember.populate([
@@ -103,14 +83,22 @@ router.post('/', async (req, res) => {
   }
 });
 
-/**
- * ✅ Bulk add family members
- */
+/* =========================================================
+   ✅ BULK ADD FAMILY MEMBERS
+   POST /api/family-members/bulk
+========================================================= */
 router.post('/bulk', async (req, res) => {
   try {
     const { familyMembers, residentId, flatId } = req.body;
 
-    if (!familyMembers || !Array.isArray(familyMembers)) {
+    if (!residentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'residentId is required'
+      });
+    }
+
+    if (!Array.isArray(familyMembers) || familyMembers.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'familyMembers array is required'
@@ -131,6 +119,7 @@ router.post('/bulk', async (req, res) => {
       name: m.name,
       relation: m.relation,
       age: m.age,
+      gender: m.gender,
       phone: m.phone,
       photo: m.photo,
       isApproved: false
@@ -152,17 +141,15 @@ router.post('/bulk', async (req, res) => {
   }
 });
 
-/**
- * ✅ Get family members by resident mobile
- */
-router.get('/by-mobile/:mobile', async (req, res) => {
+/* =========================================================
+   ✅ GET FAMILY MEMBERS BY RESIDENT ID
+   GET /api/family-members/by-resident/:residentId
+========================================================= */
+router.get('/by-resident/:residentId', async (req, res) => {
   try {
-    const resident = await Resident.findOne({ mobile: req.params.mobile });
-    if (!resident) {
-      return res.status(404).json({ success: false, message: 'Resident not found' });
-    }
-
-    const familyMembers = await FamilyMember.find({ resident: resident._id })
+    const familyMembers = await FamilyMember.find({
+      resident: req.params.residentId
+    })
       .populate('flat', 'flatNo tower')
       .sort({ createdAt: -1 });
 
@@ -180,47 +167,39 @@ router.get('/by-mobile/:mobile', async (req, res) => {
   }
 });
 
-/**
- * ✅ Get family members by resident ID
- */
-router.get('/by-resident/:residentId', async (req, res) => {
+/* =========================================================
+   ✅ GET SINGLE FAMILY MEMBER
+   GET /api/family-members/:id
+========================================================= */
+router.get('/:id', async (req, res) => {
   try {
-    const familyMembers = await FamilyMember.find({
-      resident: req.params.residentId
-    }).sort({ createdAt: -1 });
+    const member = await FamilyMember.findById(req.params.id)
+      .populate('resident', 'fullName mobile')
+      .populate('flat', 'flatNo tower');
+
+    if (!member) {
+      return res.status(404).json({
+        success: false,
+        message: 'Family member not found'
+      });
+    }
 
     res.json({
       success: true,
-      data: familyMembers,
-      count: familyMembers.length
+      data: member
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch family members',
-      error: error.message
+      message: error.message
     });
   }
 });
 
-/**
- * ✅ Get single family member
- */
-router.get('/:id', async (req, res) => {
-  try {
-    const member = await FamilyMember.findById(req.params.id);
-    if (!member) {
-      return res.status(404).json({ success: false, message: 'Not found' });
-    }
-    res.json({ success: true, data: member });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
-
-/**
- * ✅ Update family member
- */
+/* =========================================================
+   ✅ UPDATE FAMILY MEMBER
+   PUT /api/family-members/:id
+========================================================= */
 router.put('/:id', async (req, res) => {
   try {
     const member = await FamilyMember.findByIdAndUpdate(
@@ -230,7 +209,10 @@ router.put('/:id', async (req, res) => {
     );
 
     if (!member) {
-      return res.status(404).json({ success: false, message: 'Not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Family member not found'
+      });
     }
 
     res.json({
@@ -239,22 +221,37 @@ router.put('/:id', async (req, res) => {
       data: member
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 });
 
-/**
- * ✅ Delete family member
- */
+/* =========================================================
+   ✅ DELETE FAMILY MEMBER
+   DELETE /api/family-members/:id
+========================================================= */
 router.delete('/:id', async (req, res) => {
   try {
     const member = await FamilyMember.findByIdAndDelete(req.params.id);
+
     if (!member) {
-      return res.status(404).json({ success: false, message: 'Not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Family member not found'
+      });
     }
-    res.json({ success: true, message: 'Deleted successfully' });
+
+    res.json({
+      success: true,
+      message: 'Deleted successfully'
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 });
 

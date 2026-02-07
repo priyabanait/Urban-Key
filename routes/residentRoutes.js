@@ -4,132 +4,121 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-/**
- * ✅ Create Resident (Registration)
- * Requires: loginId (user ID) OR mobile (from signup/login)
- * Only users who have signed up/logged in can register as residents
- */
+/* ================= CREATE RESIDENT ================= */
 router.post('/', async (req, res) => {
   try {
-    const { loginId, mobile, fullName, email, buildingName, flatNumber, ownershipType, idProof } = req.body;
+    const {
+      loginId,
+      fullName,
+      city,
+      society,
+      email,
+      phone,
+      mobile,
+      tower,
+      flatNumber,
+      residentType,
+      ownershipType,
+      moveInDate,
+      emergencyContact,
+      idProof,
+      photo
+    } = req.body;
 
-    if (!mobile) {
+    const finalMobile = mobile || phone;
+
+    // Normalize ownership type
+    let finalOwnership = ownershipType || residentType || 'Owner';
+    finalOwnership =
+      finalOwnership.toLowerCase() === 'tenant' ? 'Tenant' : 'Owner';
+
+    /* -------- REQUIRED FIELD CHECK -------- */
+    if (!fullName || !finalMobile || !city || !society || !flatNumber) {
       return res.status(400).json({
         success: false,
-        message: 'Mobile number is required for registration'
+        message: 'fullName, mobile, city, society and flatNumber are required'
       });
     }
 
+    /* -------- FIND USER (OPTIONAL) -------- */
     let user = null;
-    // If loginId or mobile exists in users collection, fetch user
     if (loginId) {
       user = await User.findById(loginId);
     } else {
-      user = await User.findOne({ mobile });
+      user = await User.findOne({ mobile: finalMobile });
     }
 
-    // Check if resident already exists for this mobile
-    const existingResident = await Resident.findOne({ mobile });
+    /* -------- DUPLICATE CHECK -------- */
+    const existingResident = await Resident.findOne({ mobile: finalMobile });
     if (existingResident) {
       return res.status(400).json({
         success: false,
-        message: 'Resident registration already exists for this mobile number'
+        message: 'Resident already exists for this mobile number'
       });
     }
 
-    // Create the resident
+    /* -------- CREATE RESIDENT -------- */
     const resident = await Resident.create({
-      fullName: fullName || (user ? user.username : ''),
-      email: email,
-      mobile: mobile,
-      buildingName: buildingName,
-      flatNumber: flatNumber,
-      ownershipType: ownershipType,
-      idProof: idProof
+      fullName,
+      email,
+      mobile: finalMobile,
+      city,
+      society,
+      tower,
+      flatNumber,
+      ownershipType: finalOwnership,
+      moveInDate,
+      emergencyContact,
+      idProof,
+      photo
     });
 
-    // If a user exists, update their registration status
+    /* -------- UPDATE USER (IF EXISTS) -------- */
     if (user) {
       user.registrationCompleted = true;
       user.role = 'resident';
       await user.save();
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Resident registered successfully',
-      data: {
-        resident,
-        userId: user ? user._id : null,
-        mobile: resident.mobile
-      }
-    });
-  } catch (error) {
-    console.error('Create resident error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create resident',
-      error: error.message
-    });
-  }
-});
-
-
-/**
- * ✅ Get Resident by Mobile
- */
-router.get('/by-mobile/:mobile', async (req, res) => {
-  try {
-    const resident = await Resident.findOne({ mobile: req.params.mobile });
-
-    if (!resident) {
-      return res.status(404).json({
-        success: false,
-        message: 'Resident not found'
-      });
-    }
-
-    res.json({
-      success: true,
+      message: 'Resident added successfully',
       data: resident
     });
   } catch (error) {
-    console.error('Get resident by mobile error:', error);
-    res.status(500).json({
+    console.error('CREATE RESIDENT ERROR:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Server error'
+      message: error.message || 'Failed to create resident'
     });
   }
 });
 
-/**
- * ✅ Get All Residents
- */
+/* ================= GET ALL RESIDENTS ================= */
 router.get('/', async (req, res) => {
   try {
-    const residents = await Resident.find().sort({ createdAt: -1 });
+    const residents = await Resident.find({})
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.json({
+    return res.status(200).json({
       success: true,
       count: residents.length,
       data: residents
     });
   } catch (error) {
-    console.error('Get residents error:', error);
-    res.status(500).json({
+    console.error('GET RESIDENTS ERROR:', error);
+    return res.status(500).json({
       success: false,
       message: 'Failed to fetch residents'
     });
   }
 });
 
-/**
- * ✅ Get Resident by ID
- */
+/* ================= GET RESIDENT BY ID ================= */
 router.get('/:id', async (req, res) => {
   try {
     const resident = await Resident.findById(req.params.id);
-
     if (!resident) {
       return res.status(404).json({
         success: false,
@@ -137,82 +126,69 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: resident
     });
   } catch (error) {
-    console.error('Get resident by id error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: 'Server error'
+      message: 'Invalid resident ID'
     });
   }
 });
 
-/**
- * ✅ Update Resident
- */
+/* ================= UPDATE RESIDENT ================= */
 router.put('/:id', async (req, res) => {
   try {
-    const resident = await Resident.findByIdAndUpdate(
+    const updatedResident = await Resident.findByIdAndUpdate(
       req.params.id,
-      {
-        fullName: req.body.fullName,
-        email: req.body.email,
-        mobile: req.body.mobile,
-        buildingName: req.body.buildingName,
-        flatNumber: req.body.flatNumber,
-        ownershipType: req.body.ownershipType,
-        idProof: req.body.idProof
-      },
-      { new: true }
+      req.body, // supports city, society, photo, etc.
+      { new: true, runValidators: true }
     );
 
-    if (!resident) {
+    if (!updatedResident) {
       return res.status(404).json({
         success: false,
         message: 'Resident not found'
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Resident updated successfully',
-      data: resident
+      data: updatedResident
     });
   } catch (error) {
-    console.error('Update resident error:', error);
-    res.status(500).json({
+    console.error('UPDATE RESIDENT ERROR:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Failed to update resident'
+      message: 'Update failed'
     });
   }
 });
 
-/**
- * ✅ Delete Resident
- */
+/* ================= DELETE RESIDENT ================= */
 router.delete('/:id', async (req, res) => {
   try {
-    const resident = await Resident.findByIdAndDelete(req.params.id);
+    const deletedResident = await Resident.findByIdAndDelete(req.params.id);
 
-    if (!resident) {
+    if (!deletedResident) {
       return res.status(404).json({
         success: false,
         message: 'Resident not found'
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'Resident deleted successfully'
     });
   } catch (error) {
-    console.error('Delete resident error:', error);
-    res.status(500).json({
+    console.error('DELETE RESIDENT ERROR:', error);
+    return res.status(500).json({
       success: false,
-      message: 'Failed to delete resident'
+      message: 'Delete failed'
     });
   }
 });
