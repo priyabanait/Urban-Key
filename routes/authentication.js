@@ -1,10 +1,10 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import User from '../models/User.js';
+import User from '../models/user.js';
 import Resident from '../models/Resident.js';
 import FamilyMember from '../models/FamilyMember.js';
-import Notification from '../models/Notification.js';
+import Notification from '../models/notification.js';
 
 const router = express.Router();
 const SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
