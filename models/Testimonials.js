@@ -28,6 +28,15 @@ const testimonialSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true
+    },
+    society: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Society',
+      default: null
+    },
+    approved: {
+      type: Boolean,
+      default: false
     }
   },
   { timestamps: true }

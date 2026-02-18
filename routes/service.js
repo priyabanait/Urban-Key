@@ -1,5 +1,6 @@
 import express from 'express';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import cloudinary from '../config/cloudinary.js';
 import Service from '../models/Service.js';
 
@@ -34,10 +35,15 @@ const uploadToCloudinary = (buffer, folder) => {
 /* ================= CREATE ================= */
 router.post('/', upload.single('photo'), async (req, res) => {
   try {
-    const { profession, name, address, mobile, isActive } = req.body;
+    const { profession, name, address, mobile, society, isActive } = req.body;
 
-    if (!profession || !name || !address || !mobile) {
-      return res.status(400).json({ error: 'All fields are required' });
+    if (!profession || !name || !address || !mobile || !society) {
+      return res.status(400).json({ error: 'All fields including society are required' });
+    }
+
+    // Validate society is a valid MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(society)) {
+      return res.status(400).json({ error: 'Invalid society ID' });
     }
 
     let photo = '';
@@ -54,24 +60,46 @@ router.post('/', upload.single('photo'), async (req, res) => {
       name,
       address,
       mobile,
+      society: new mongoose.Types.ObjectId(society),
       isActive: isActive ?? true,
       photo,
       photoPublicId,
     });
 
+    // Populate society after creation
+    await service.populate('society', 'name');
+
     res.status(201).json(service);
   } catch (err) {
     console.error('CREATE SERVICE ERROR:', err);
-    res.status(500).json({ error: 'Failed to create service' });
+    res.status(500).json({ error: 'Failed to create service', details: err.message });
   }
 });
 
 /* ================= GET ALL ================= */
 router.get('/', async (req, res) => {
   try {
-    const services = await Service.find().sort({ createdAt: -1 });
+    const { society } = req.query;
+    const query = {};
+
+    // Filter by society if provided
+    if (society) {
+      if (mongoose.Types.ObjectId.isValid(society)) {
+        query.society = new mongoose.Types.ObjectId(society);
+      } else {
+        query.society = society;
+      }
+      console.log('Filtering services by society:', society);
+    }
+
+    const services = await Service.find(query)
+      .populate('society', 'name')
+      .sort({ createdAt: -1 });
+    
+    console.log(`Found ${services.length} services`, query);
     res.json(services);
-  } catch {
+  } catch (err) {
+    console.error('GET SERVICES ERROR:', err);
     res.status(500).json({ error: 'Failed to fetch services' });
   }
 });

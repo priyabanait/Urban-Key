@@ -1,189 +1,250 @@
-import express from 'express';
-import Helpdesk from '../models/Helpdesk.js';
-import { authenticate } from '../middleware/authMiddleware.js';
-import { validateHelpdesk } from '../middleware/validationMiddleware.js';
+import express from "express";
+import Helpdesk from "../models/Helpdesk.js";
+import City from "../models/City.js";
+import Society from "../models/Society.js";
+import User from "../models/User.js";
 
 const router = express.Router();
 
-// Get all tickets
-router.get('/', authenticate, async (req, res) => {
-  try {
-    const { status, category, priority } = req.query;
-    
-    const query = { society: req.user.societyId };
-    
-    if (status) query.status = status;
-    if (category) query.category = category;
-    if (priority) query.priority = priority;
-    
-    const tickets = await Helpdesk.find(query)
-      .populate('resident', 'name')
-      .populate('flat', 'flatNo tower')
-      .populate('assignedTo', 'name')
-      .sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      count: tickets.length,
-      data: tickets
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching tickets',
-      error: error.message
-    });
-  }
-});
 
-// Get single ticket
-router.get('/:id', authenticate, async (req, res) => {
+// ============================================
+// 1️⃣ CREATE ISSUE (Member)
+// ============================================
+router.post("/", async (req, res) => {
   try {
-    const ticket = await Helpdesk.findById(req.params.id)
-      .populate('resident', 'name email phone')
-      .populate('flat', 'flatNo tower')
-      .populate('assignedTo', 'name')
-      .populate('comments.user', 'name');
-    
-    if (!ticket) {
-      return res.status(404).json({
+    const {
+      title,
+      description,
+      category,
+      city,            // ✅ added
+      society,
+      member,
+      flatNo,
+      buildingName,
+      priority,
+    } = req.body;
+
+    // Basic request validation to provide clear client errors
+    const missing = [];
+    if (!title) missing.push('title');
+    if (!description) missing.push('description');
+    if (!city) missing.push('city');
+    if (!society) missing.push('society');
+    if (!flatNo) missing.push('flatNo');
+    if (!buildingName) missing.push('buildingName');
+    // member is optional (admin can create issues without member)
+
+    if (missing.length) {
+      return res.status(400).json({
         success: false,
-        message: 'Ticket not found'
+        message: 'Missing required fields',
+        missing,
       });
     }
 
-    res.json({
-      success: true,
-      data: ticket
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching ticket',
-      error: error.message
-    });
-  }
-});
+    // Validate referenced entities
+    let cityDoc = null;
+    try {
+      cityDoc = await City.findById(city);
+    } catch (e) {
+      // ignore cast errors
+    }
+    if (!cityDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid city id' });
+    }
 
-// Create ticket
-router.post('/', authenticate, validateHelpdesk, async (req, res) => {
-  try {
-    const ticket = await Helpdesk.create({
-      ...req.body,
-      society: req.user.societyId,
-      resident: req.user.residentId,
-      flat: req.user.flatId
+    const societyDoc = await Society.findById(society);
+    if (!societyDoc) {
+      return res.status(400).json({ success: false, message: 'Invalid society id' });
+    }
+
+    // If Society references a city, ensure it matches the provided city
+    if (societyDoc.city) {
+      const societyCityId = societyDoc.city.toString();
+      if (societyCityId !== cityDoc._id.toString()) {
+        return res.status(400).json({ success: false, message: 'Society does not belong to the provided city' });
+      }
+    }
+
+    // If a member is provided, ensure it exists
+    if (member) {
+      const userDoc = await User.findById(member);
+      if (!userDoc) {
+        return res.status(400).json({ success: false, message: 'Invalid member id' });
+      }
+    }
+
+    const issue = await Helpdesk.create({
+      title,
+      description,
+      category,
+      city: cityDoc._id.toString(),
+      society: societyDoc._id,
+      member: member || undefined,
+      flatNo,
+      buildingName,
+      priority,
     });
+
+    // Populate returned object
+    const populated = await Helpdesk.findById(issue._id).populate('society', 'name').populate('member', 'name email');
 
     res.status(201).json({
       success: true,
-      message: 'Ticket created successfully',
-      data: ticket
+      message: "Issue created successfully",
+      data: populated,
     });
+
   } catch (error) {
+    // Mongoose validation errors should return 400
+    if (error && error.name === 'ValidationError') {
+      return res.status(400).json({
+        success: false,
+        message: 'Validation error',
+        error: error.message,
+      });
+    }
+
     res.status(500).json({
       success: false,
-      message: 'Error creating ticket',
-      error: error.message
+      message: "Error creating issue",
+      error: error.message,
     });
   }
 });
 
-// Update ticket status
-router.put('/:id/status', authenticate, async (req, res) => {
-  try {
-    const { status } = req.body;
-    
-    const updateData = { status };
-    if (status === 'Resolved') updateData.resolvedAt = new Date();
-    if (status === 'Closed') updateData.closedAt = new Date();
-    
-    const ticket = await Helpdesk.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true, runValidators: true }
-    );
 
-    if (!ticket) {
+// ============================================
+// 2️⃣ GET ALL ISSUES (Admin Filter)
+// ============================================
+router.get("/", async (req, res) => {
+  try {
+    const { societyId, memberId, status, city } = req.query;
+
+    const filter = {};
+
+    if (societyId) filter.society = societyId;
+    if (memberId) filter.member = memberId;
+    if (status) filter.status = status;
+    if (city) filter.city = city;  // ✅ added city filter
+
+    const issues = await Helpdesk.find(filter)
+      .populate("society", "name")
+      .populate("member", "name email")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: issues.length,
+      data: issues,
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching issues",
+      error: error.message,
+    });
+  }
+});
+
+
+// ============================================
+// 3️⃣ GET SINGLE ISSUE
+// ============================================
+router.get("/:id", async (req, res) => {
+  try {
+    const issue = await Helpdesk.findById(req.params.id)
+      .populate("society", "name")
+      .populate("member", "name email");
+
+    if (!issue) {
       return res.status(404).json({
         success: false,
-        message: 'Ticket not found'
+        message: "Issue not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Ticket status updated successfully',
-      data: ticket
+      data: issue,
     });
+
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Error updating ticket',
-      error: error.message
+      message: "Error fetching issue",
+      error: error.message,
     });
   }
 });
 
-// Assign ticket
-router.put('/:id/assign', authenticate, async (req, res) => {
-  try {
-    const ticket = await Helpdesk.findByIdAndUpdate(
-      req.params.id,
-      { assignedTo: req.body.assignedTo, status: 'In Progress' },
-      { new: true }
-    );
 
-    if (!ticket) {
+// ============================================
+// 4️⃣ UPDATE ISSUE STATUS (Admin)
+// ============================================
+router.put("/:id/status", async (req, res) => {
+  try {
+    const { status, adminRemark } = req.body;
+
+    const issue = await Helpdesk.findById(req.params.id);
+
+    if (!issue) {
       return res.status(404).json({
         success: false,
-        message: 'Ticket not found'
+        message: "Issue not found",
+      });
+    }
+
+    issue.status = status;
+    issue.adminRemark = adminRemark;
+
+    if (status === "Resolved") {
+      issue.resolvedAt = new Date();
+    }
+
+    await issue.save();
+
+    res.json({
+      success: true,
+      message: "Issue updated successfully",
+      data: issue,
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error updating issue",
+      error: error.message,
+    });
+  }
+});
+
+
+// ============================================
+// 5️⃣ DELETE ISSUE
+// ============================================
+router.delete("/:id", async (req, res) => {
+  try {
+    const issue = await Helpdesk.findByIdAndDelete(req.params.id);
+
+    if (!issue) {
+      return res.status(404).json({
+        success: false,
+        message: "Issue not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Ticket assigned successfully',
-      data: ticket
+      message: "Issue deleted successfully",
     });
+
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Error assigning ticket',
-      error: error.message
-    });
-  }
-});
-
-// Add comment
-router.post('/:id/comment', authenticate, async (req, res) => {
-  try {
-    const ticket = await Helpdesk.findById(req.params.id);
-    
-    if (!ticket) {
-      return res.status(404).json({
-        success: false,
-        message: 'Ticket not found'
-      });
-    }
-
-    ticket.comments.push({
-      user: req.user.id,
-      comment: req.body.comment
-    });
-
-    await ticket.save();
-
-    res.json({
-      success: true,
-      message: 'Comment added successfully',
-      data: ticket
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error adding comment',
-      error: error.message
+      message: "Error deleting issue",
+      error: error.message,
     });
   }
 });

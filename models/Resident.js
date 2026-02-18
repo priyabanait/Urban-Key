@@ -8,10 +8,18 @@ const ResidentSchema = new mongoose.Schema(
 
     // ✅ Location
     city: { type: String, required: true },
-    society: { type: String, required: true }, // society name
+    society: {
+      type: mongoose.Schema.Types.Mixed, // Can be string (legacy) or ObjectId
+      required: true
+    },
 
     tower: { type: String },
     flatNumber: { type: String, required: true },
+    flat: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Flat',
+      default: null
+    },
 
     ownershipType: {
       type: String,

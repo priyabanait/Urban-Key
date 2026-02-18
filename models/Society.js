@@ -1,67 +1,42 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const societySchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Society name is required'],
-    trim: true
-  },
-  address: {
-    street: String,
-    city: String,
-    state: String,
-    zipCode: String,
-    country: { type: String, default: 'India' }
-  },
-  contactInfo: {
-    email: {
+const SocietySchema = new mongoose.Schema(
+  {
+    name: {
       type: String,
-      lowercase: true,
-      trim: true
+      required: true,
+      trim: true,
     },
-    phone: String,
-    website: String
-  },
-  registrationNumber: {
-    type: String,
-    unique: true,
-    sparse: true,
-    trim: true
-  },
-  establishedDate: {
-    type: Date
-  },
-  totalTowers: {
-    type: Number,
-    default: 0
-  },
-  totalFlats: {
-    type: Number,
-    default: 0
-  },
-  settings: {
-    maintenanceDueDay: {
-      type: Number,
-      default: 5,
-      min: 1,
-      max: 28
+    code: {
+      type: String,
+      trim: true,
     },
-    visitorApprovalRequired: {
+    city: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "City",
+      required: true,
+      index: true,
+    },
+    isActive: {
       type: Boolean,
-      default: true
+      default: true,
     },
-    amenityBookingHoursAdvance: {
-      type: Number,
-      default: 24
-    }
+    coordinates: {
+      type: {
+        type: String,
+        enum: ['Point']
+      },
+      coordinates: {
+        type: [Number]
+      }
+    },
   },
-  status: {
-    type: String,
-    enum: ['active', 'inactive', 'suspended'],
-    default: 'active'
-  }
-}, {
-  timestamps: true
-});
+  { timestamps: true }
+);
 
-export default mongoose.model('Society', societySchema);
+// Indexes
+SocietySchema.index({ name: 1 });
+SocietySchema.index({ isActive: 1 });
+SocietySchema.index({ coordinates: "2dsphere" });
+
+export default mongoose.models.Society || mongoose.model("Society", SocietySchema);

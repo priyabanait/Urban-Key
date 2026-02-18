@@ -1,81 +1,74 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const helpdeskSchema = new mongoose.Schema({
-  society: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Society',
-    required: true
-  },
-  ticketNumber: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  resident: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Resident',
-    required: true
-  },
-  flat: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Flat',
-    required: true
-  },
-  category: {
-    type: String,
-    enum: ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Security', 'Other'],
-    required: true
-  },
-  subject: {
-    type: String,
-    required: [true, 'Subject is required'],
-    trim: true
-  },
-  description: {
-    type: String,
-    required: [true, 'Description is required']
-  },
-  priority: {
-    type: String,
-    enum: ['Low', 'Medium', 'High', 'Urgent'],
-    default: 'Medium'
-  },
-  status: {
-    type: String,
-    enum: ['Open', 'In Progress', 'Resolved', 'Closed', 'Rejected'],
-    default: 'Open'
-  },
-  attachments: [{
-    type: String
-  }],
-  assignedTo: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  },
-  comments: [{
-    user: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User'
+const societyIssueSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+      trim: true,
     },
-    comment: String,
-    createdAt: {
+
+    description: {
+      type: String,
+      required: true,
+    },
+
+    category: {
+      type: String,
+      enum: ["Maintenance", "Security", "Water", "Electricity", "Parking", "Other"],
+      default: "Other",
+    },
+
+    city: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    society: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Society",
+      required: true,
+    },
+
+    member: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      // member may be optional when creating issues from admin panel
+      required: false,
+    },
+
+    flatNo: {
+      type: String,
+      required: true,
+    },
+
+    buildingName: {
+      type: String,
+      required: true,
+    },
+
+    priority: {
+      type: String,
+      enum: ["Low", "Medium", "High"],
+      default: "Medium",
+    },
+
+    status: {
+      type: String,
+      enum: ["Open", "In Progress", "Resolved", "Rejected"],
+      default: "Open",
+    },
+
+    adminRemark: {
+      type: String,
+    },
+
+    resolvedAt: {
       type: Date,
-      default: Date.now
-    }
-  }],
-  resolvedAt: Date,
-  closedAt: Date
-}, {
-  timestamps: true
-});
+    },
+  },
+  { timestamps: true }
+);
 
-// Auto-generate ticket number before saving
-helpdeskSchema.pre('save', async function(next) {
-  if (!this.ticketNumber) {
-    const count = await mongoose.model('Helpdesk').countDocuments();
-    this.ticketNumber = `TKT${String(count + 1).padStart(6, '0')}`;
-  }
-  next();
-});
-
-export default mongoose.model('Helpdesk', helpdeskSchema);
+export default mongoose.model("SocietyIssue", societyIssueSchema);

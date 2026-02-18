@@ -6,19 +6,27 @@ const amenitySchema = new mongoose.Schema({
     required: true,
     trim: true
   },
- type: {
-  type: String,
-  required: true,
-  trim: true
-},
+  type: {
+    type: String,
+    required: true,
+    trim: true
+  },
   description: {
+    type: String,
+    trim: true
+  },
+  cityName: {
     type: String,
     trim: true
   },
   society: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Society',
-    required: false // optional now
+    required: false
+  },
+  societyId: {
+    type: String,
+    trim: true
   },
   location: String,
   capacity: Number,

@@ -7,6 +7,11 @@ const serviceSchema = new mongoose.Schema(
     photo: { type: String }, // path to uploaded image
     address: { type: String, required: true },
     mobile: { type: String, required: true },
+    society: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Society',
+      required: true
+    },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

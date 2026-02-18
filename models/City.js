@@ -1,62 +1,43 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const CitySchema = new mongoose.Schema({
-  name: { 
-    type: String, 
-    required: true, 
-    unique: true,
-    trim: true 
-  },
-
-  state: { 
-    type: String, 
-    required: true,
-    trim: true 
-  },
-
-  country: { 
-    type: String, 
-    default: 'India',
-    trim: true 
-  },
-
-  // ✅ SOCIETIES ARRAY
-  societies: [{
+const CitySchema = new mongoose.Schema(
+  {
     name: {
       type: String,
       required: true,
-      trim: true
+      unique: true,
+      trim: true,
     },
-    code: {
+    state: {
       type: String,
-      trim: true
+      required: true,
+      trim: true,
+    },
+    country: {
+      type: String,
+      default: "India",
+      trim: true,
     },
     isActive: {
       type: Boolean,
-      default: true
-    }
-  }],
-
-  isActive: { 
-    type: Boolean, 
-    default: true 
+      default: true,
+    },
+    coordinates: {
+      type: {
+        type: String,
+        enum: ['Point']
+      }, // GeoJSON type (no default to avoid partial objects)
+      coordinates: {
+        type: [Number]
+      } // [longitude, latitude]
+    },
   },
+  { timestamps: true }
+);
 
-  coordinates: {
-    latitude: Number,
-    longitude: Number
-  },
-
-  societyCount: {
-    type: Number,
-    default: 0
-  }
-
-}, { timestamps: true });
-
-/* ================= INDEXES ================= */
+// Indexes
 CitySchema.index({ name: 1, state: 1 });
 CitySchema.index({ isActive: 1 });
-CitySchema.index({ "societies.name": 1 });
+CitySchema.index({ coordinates: "2dsphere" });
 
-export default mongoose.models.City || mongoose.model('City', CitySchema);
+export default mongoose.models.City || mongoose.model("City", CitySchema);

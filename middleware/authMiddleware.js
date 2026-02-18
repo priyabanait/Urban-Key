@@ -1,60 +1,39 @@
-import jwt from 'jsonwebtoken';
-
+// Authentication bypass: attach a default admin-like user to every request
+// This removes JWT/token checks and role enforcement. Intended when the
+// project owner requests no authentication. Use with caution.
 export const authenticate = async (req, res, next) => {
   try {
-    let token;
-
-    // Check for token in Authorization header
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
+    // If a client provides minimal user info via header, respect it; otherwise attach default admin
+    const headerUser = req.headers['x-mock-user'] || req.headers['x-mockuser'];
+    if (headerUser) {
+      try {
+        req.user = typeof headerUser === 'string' ? JSON.parse(headerUser) : headerUser;
+        return next();
+      } catch (err) {
+        // ignore and fallthrough to default user
+      }
     }
 
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Not authorized to access this route'
-      });
-    }
-
-    try {
-      // Verify token
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = decoded;
-      next();
-    } catch (error) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
+    // Default user: admin-like with a societyId used across the app
+    req.user = {
+      id: 'admin',
+      role: 'admin',
+      type: 'admin',
+      mobile: null,
+      name: 'Admin',
+      societyId: process.env.DEFAULT_SOCIETY_ID || '69901e38e4343ed761e92c81'
+    };
+    return next();
   } catch (error) {
     return res.status(500).json({
       success: false,
-      message: 'Authentication error',
+      message: 'Authentication bypass error',
       error: error.message
     });
   }
 };
 
-// Role-based authorization middleware
-export const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'User not authenticated'
-      });
-    }
-
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `User role '${req.user.role}' is not authorized to access this route`
-      });
-    }
-
-    next();
-  };
-};
+// No-op authorize: allow all roles
+export const authorize = (...roles) => (req, res, next) => next();
 
 

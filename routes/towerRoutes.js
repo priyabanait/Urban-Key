@@ -8,9 +8,14 @@ const router = express.Router();
 // Get all towers (public read)
 router.get('/', async (req, res) => {
   try {
-    // If authenticated, filter by society; else return all active towers
-    const societyFilter = req.user?.societyId ? { society: req.user.societyId } : {};
+    const { societyId } = req.query;
+    // Filter by societyId: query param (admin) > user.societyId > none
+    let societyFilter = {};
+    if (societyId) societyFilter = { society: societyId };
+    else if (req.user?.societyId) societyFilter = { society: req.user.societyId };
     const towers = await Tower.find({ ...societyFilter, isActive: true })
+      .populate('society', 'name code') // Populate society name and code
+      .populate('cityId', 'name state') // Populate city name and state
       .sort({ name: 1 });
     
     res.json({
@@ -30,7 +35,9 @@ router.get('/', async (req, res) => {
 // Get single tower (public read)
 router.get('/:id', async (req, res) => {
   try {
-    const tower = await Tower.findById(req.params.id);
+    const tower = await Tower.findById(req.params.id)
+      .populate('society', 'name code')
+      .populate('cityId', 'name state');
     
     if (!tower) {
       return res.status(404).json({
@@ -176,6 +183,56 @@ router.delete('/:id', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error deleting tower',
+      error: error.message
+    });
+  }
+});
+
+// Get towers by society name
+router.get('/by-society/:societyName', async (req, res) => {
+  try {
+    const { societyName } = req.params;
+    const { cityName } = req.query;
+
+    // Import Society and City models, use city _id relationship for lookup
+    const Society = (await import('../models/Society.js')).default;
+    const City = (await import('../models/City.js')).default;
+
+    let city;
+    if (cityName) {
+      city = await City.findOne({ name: new RegExp(`^${cityName}$`, 'i') });
+      if (!city) {
+        return res.json({ success: false, message: 'City not found', data: [] });
+      }
+    }
+
+    const query = { name: new RegExp(`^${societyName}$`, 'i') };
+    if (city) query.city = city._id;
+
+    const society = await Society.findOne(query);
+    if (!society) {
+      return res.json({
+        success: false,
+        message: 'Society not found',
+        data: []
+      });
+    }
+
+    // Find all towers for this society
+    const towers = await Tower.find({ 
+      society: society._id,
+      isActive: true 
+    }).sort({ name: 1 });
+
+    res.json({
+      success: true,
+      count: towers.length,
+      data: towers
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching towers',
       error: error.message
     });
   }

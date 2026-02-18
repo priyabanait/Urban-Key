@@ -23,9 +23,10 @@ export const validateTower = [
 // Flat validation
 export const validateFlat = [
   body('flatNo').trim().notEmpty().withMessage('Flat number is required'),
-  body('tower').isMongoId().withMessage('Valid tower ID is required'),
+  body('tower').notEmpty().withMessage('Tower ID is required').isMongoId().withMessage('Valid tower ID is required'),
+  body('society').notEmpty().withMessage('Society ID is required').isMongoId().withMessage('Valid society ID is required'),
   body('floor').isInt({ min: 0 }).withMessage('Valid floor number is required'),
-  body('flatType').isIn(['1BHK', '2BHK', '3BHK', '4BHK', '5BHK', 'Penthouse', 'Studio']).withMessage('Valid flat type is required'),
+  body('flatType').notEmpty().withMessage('Flat type is required').isIn(['1BHK', '2BHK', '3BHK', '4BHK', '5BHK', 'Penthouse', 'Studio']).withMessage('Valid flat type is required'),
   handleValidationErrors
 ];
 

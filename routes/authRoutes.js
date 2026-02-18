@@ -9,7 +9,7 @@ const router = express.Router();
 // Manager login with email/password
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -17,19 +17,24 @@ router.post('/login', async (req, res) => {
         message: 'Email and password are required'
       });
     }
+    // Normalize email to avoid case/whitespace issues
+    email = String(email).trim().toLowerCase();
 
     // Find manager by email and include password field
-    const manager = await Manager.findOne({ email }).select('+password');
+    const manager = await Manager.findOne({ email }).select('+password').populate({ path: 'society', select: 'name city', populate: { path: 'city', select: 'name _id' } });
+
+    console.log('Login attempt:', { email, found: !!manager });
     
     if (!manager) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'Invalid credentials (user not found)'
       });
     }
 
     // Check if manager is active
     if (manager.status !== 'active') {
+      console.log('Login blocked - inactive account:', { email, status: manager.status });
       return res.status(403).json({
         success: false,
         message: 'Account is not active. Please contact administrator.'
@@ -40,9 +45,10 @@ router.post('/login', async (req, res) => {
     const isPasswordMatch = await manager.comparePassword(password);
     
     if (!isPasswordMatch) {
+      console.log('Login failed - password mismatch for', email);
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'Invalid credentials (wrong password)'
       });
     }
 
@@ -62,6 +68,9 @@ router.post('/login', async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRE || '30d' }
     );
 
+    const society = manager.society;
+    const cityId = society?.city?._id || society?.city;
+
     res.json({
       success: true,
       token,
@@ -71,7 +80,9 @@ router.post('/login', async (req, res) => {
         email: manager.email,
         role: manager.role,
         department: manager.department,
-        status: manager.status
+        status: manager.status,
+        societyId: manager.society?._id || manager.society,
+        cityId: cityId
       }
     });
   } catch (error) {

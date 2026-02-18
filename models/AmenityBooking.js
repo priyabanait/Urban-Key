@@ -14,24 +14,34 @@ const amenityBookingSchema = new mongoose.Schema({
   flat: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Flat',
-    required: true
+    required: false // Optional for secretary bookings
   },
   // Either resident or family member can book
   bookedBy: {
     userType: {
       type: String,
-      enum: ['Resident', 'FamilyMember'],
+      enum: ['Resident', 'FamilyMember', 'Secretary'],
       required: true
     },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      required: true,
+      required: false, // Optional for secretary bookings
       refPath: 'bookedBy.userType'
     },
     name: {
       type: String,
       required: true
     }
+  },
+  bookingType: {
+    type: String,
+    enum: ['ResidentBooking', 'SecretaryBooking'],
+    default: 'ResidentBooking'
+  },
+  secretaryDetails: {
+    secretaryName: String,
+    meetingType: String,
+    participantCount: Number
   },
   bookingDate: {
     type: Date,

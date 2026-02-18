@@ -6,17 +6,20 @@ import { authenticate } from '../middleware/authMiddleware.js';
 const router = express.Router();
 
 /**
- * Get all amenities for a society
- * GET /api/amenities?societyId=xxx
+ * Get all amenities - with filtering by city and society
+ * GET /api/amenities?cityName=xxx&societyId=yyy
  */
 router.get('/', async (req, res) => {
   try {
-    const { societyId } = req.query;
+    const { societyId, cityName } = req.query;
 
-    const query = societyId ? { society: societyId } : {};
+    // Build query filters
+    const query = {};
+    if (societyId) query.societyId = societyId;
+    if (cityName) query.cityName = cityName;
     
     const amenities = await Amenity.find(query)
-      .populate('society', 'name')
+      .populate('society', 'name address')
       .sort({ name: 1 });
 
     res.json({
@@ -41,7 +44,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const amenity = await Amenity.findById(req.params.id)
-      .populate('society', 'name');
+      .populate('society', 'name address');
 
     if (!amenity) {
       return res.status(404).json({
@@ -65,6 +68,46 @@ router.get('/:id', async (req, res) => {
 });
 
 /**
+ * Search amenities by city and society
+ * GET /api/amenities/search?cityName=xxx&societyId=yyy&keyword=zzz
+ */
+router.get('/search/filter', async (req, res) => {
+  try {
+    const { cityName, societyId, keyword } = req.query;
+
+    // Build query filters
+    const query = {};
+    if (cityName) query.cityName = cityName;
+    if (societyId) query.societyId = societyId;
+    if (keyword) {
+      query.$or = [
+        { name: { $regex: keyword, $options: 'i' } },
+        { type: { $regex: keyword, $options: 'i' } },
+        { description: { $regex: keyword, $options: 'i' } }
+      ];
+    }
+
+    const amenities = await Amenity.find(query)
+      .populate('society', 'name address')
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: amenities,
+      count: amenities.length,
+      filters: { cityName, societyId, keyword }
+    });
+  } catch (error) {
+    console.error('Error searching amenities:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error searching amenities',
+      error: error.message
+    });
+  }
+});
+
+/**
  * Create a new amenity
  * POST /api/amenities
  */
@@ -75,6 +118,7 @@ router.post('/', async (req, res) => {
       type,
       description,
       societyId,
+      cityName,
       location,
       capacity,
       timings,
@@ -84,7 +128,7 @@ router.post('/', async (req, res) => {
       bookingRules
     } = req.body;
 
-    // ✅ Validate required fields only
+    // ✅ Validate required fields
     if (!name || !type) {
       return res.status(400).json({
         success: false,
@@ -92,27 +136,35 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // ❌ REMOVED enum validation for type
-    // (type can now be any string)
+    // ✅ Validate that either cityName or societyId is provided
+    if (!cityName && !societyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'City name or society ID is required'
+      });
+    }
 
-    // ✅ Check if amenity already exists in the society
+    // ✅ Check if amenity already exists in the same city/society
     const existingAmenity = await Amenity.findOne({
       name: { $regex: new RegExp(`^${name}$`, 'i') },
-      ...(societyId ? { society: societyId } : {})
+      ...(cityName ? { cityName: cityName } : {}),
+      ...(societyId ? { societyId: societyId } : {})
     });
 
     if (existingAmenity) {
       return res.status(400).json({
         success: false,
-        message: 'Amenity with this name already exists in this society'
+        message: 'Amenity with this name already exists in this city/society'
       });
     }
 
     // ✅ Create amenity
     const amenity = await Amenity.create({
       name,
-      type: type.trim(), // optional cleanup
+      type: type.trim(),
       description,
+      cityName,
+      societyId,
       society: societyId || null,
       location,
       capacity,

@@ -1,6 +1,7 @@
 import express from 'express';
 import Flat from '../models/Flat.js';
 import Resident from '../models/Resident.js';
+import mongoose from 'mongoose';
 import { authenticate } from '../middleware/authMiddleware.js';
 import { validateFlat } from '../middleware/validationMiddleware.js';
 
@@ -9,23 +10,46 @@ const router = express.Router();
 // Get all flats with filters (public read)
 router.get('/', async (req, res) => {
   try {
-    const { tower, occupancyStatus, ownership, search } = req.query;
+    const { tower, occupancyStatus, ownership, search, society } = req.query;
     
     const query = { isActive: true };
-    // If authenticated, respect society filter
-    if (req.user?.societyId) query.society = req.user.societyId;
     
-    if (tower) query.tower = tower;
+    // Filter by society if provided in query
+    if (society) {
+      // Ensure proper ObjectId comparison
+      if (mongoose.Types.ObjectId.isValid(society)) {
+        query.society = new mongoose.Types.ObjectId(society);
+      } else {
+        query.society = society;
+      }
+      console.log('Filtering flats by society:', society, 'Query:', query.society);
+    } else if (req.user?.societyId) {
+      // If authenticated, respect society filter
+      query.society = req.user.societyId;
+    }
+    
+    if (tower) {
+      if (mongoose.Types.ObjectId.isValid(tower)) {
+        query.tower = new mongoose.Types.ObjectId(tower);
+      } else {
+        query.tower = tower;
+      }
+    }
     if (occupancyStatus) query.occupancyStatus = occupancyStatus;
     if (ownership) query.ownership = ownership;
     if (search) {
       query.flatNo = { $regex: search, $options: 'i' };
     }
     
+    console.log('Flats Query:', JSON.stringify(query, null, 2));
+    
     const flats = await Flat.find(query)
       .populate('tower', 'name')
+      .populate('society', 'name')
       .populate('resident', 'name email phone')
       .sort({ tower: 1, flatNo: 1 });
+    
+    console.log('Flats found:', flats.length);
     
     res.json({
       success: true,
@@ -97,9 +121,32 @@ router.get('/:id', async (req, res) => {
 // Create flat
 router.post('/', validateFlat, async (req, res) => {
   try {
+    const { flatNo, tower, society, floor, flatType, carpetArea, ownership, occupancyStatus } = req.body;
+    
+    console.log('Creating flat with data:', req.body);
+
+    // Check if flat already exists with same number in the same tower
+    const existingFlat = await Flat.findOne({ flatNo, tower });
+    if (existingFlat) {
+      return res.status(400).json({
+        success: false,
+        message: `Flat number ${flatNo} already exists in this tower`
+      });
+    }
+
     const flat = await Flat.create({
-      ...req.body
+      flatNo,
+      tower,
+      society,
+      floor,
+      flatType,
+      carpetArea: carpetArea || null,
+      ownership: ownership || 'Owner',
+      occupancyStatus: occupancyStatus || 'Vacant',
+      isActive: true
     });
+
+    console.log('Flat created successfully:', flat._id);
 
     res.status(201).json({
       success: true,
@@ -107,10 +154,12 @@ router.post('/', validateFlat, async (req, res) => {
       data: flat
     });
   } catch (error) {
+    console.error('Error creating flat:', error);
     res.status(500).json({
       success: false,
       message: 'Error creating flat',
-      error: error.message
+      error: error.message,
+      details: error.errors ? Object.keys(error.errors).map(key => error.errors[key].message) : []
     });
   }
 });

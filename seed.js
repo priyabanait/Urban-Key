@@ -2,39 +2,37 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import Manager from './models/Manager.js';
 import Society from './models/Society.js';
+import City from './models/City.js';
 
 dotenv.config();
 
 const seedDatabase = async () => {
   try {
-    // Connect to MongoDB
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ MongoDB Connected');
 
-    // Create default society
-    const existingSociety = await Society.findOne({ name: 'Default Society' });
-    let society;
-    
-    if (!existingSociety) {
+    let city = await City.findOne({ name: 'Mumbai' });
+    if (!city) {
+      city = await City.create({
+        name: 'Mumbai',
+        state: 'Maharashtra',
+        country: 'India',
+        isActive: true
+      });
+      console.log('✅ City Mumbai created');
+    }
+
+    let society = await Society.findOne({ name: 'Default Society' });
+    if (!society) {
       society = await Society.create({
         name: 'Default Society',
-        address: {
-          street: '123 Main Street',
-          city: 'Mumbai',
-          state: 'Maharashtra',
-          zipCode: '400001',
-          country: 'India'
-        },
-        contactInfo: {
-          email: 'admin@urbankey.com',
-          phone: '+91 98765 43210'
-        },
-        status: 'active'
+        code: 'DEFAULT',
+        city: city._id,
+        isActive: true
       });
       console.log('✅ Default society created');
     } else {
-      society = existingSociety;
-      console.log('ℹ️  Default society already exists');
+      society = await Society.findById(society._id);
     }
 
     // Define default managers

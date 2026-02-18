@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import City from './models/City.js';
+import Society from './models/Society.js';
 
 const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/urbankey';
 
@@ -12,7 +13,7 @@ async function seedCities() {
     await City.deleteMany({});
     console.log('Cleared existing cities');
 
-    // Create cities with societies
+    // Create cities (societies will be created separately as documents)
     const citiesData = [
       {
         name: 'bangalore',
@@ -52,15 +53,37 @@ async function seedCities() {
       }
     ];
 
-    const createdCities = await City.insertMany(citiesData);
-    console.log(`\n✅ Created ${createdCities.length} cities with societies:\n`);
-    
-    createdCities.forEach(city => {
-      console.log(`📍 ${city.name.toUpperCase()} (${city.state})`);
-      city.societies.forEach(s => {
-        console.log(`   ✓ ${s.name} (${s.code})`);
-      });
-    });
+    // Insert cities without nested societies fields (City schema doesn't contain societies)
+    const citiesToInsert = citiesData.map(c => ({
+      name: c.name,
+      state: c.state,
+      country: c.country,
+      isActive: c.isActive
+    }));
+
+    const createdCities = await City.insertMany(citiesToInsert);
+    console.log(`\n✅ Created ${createdCities.length} cities`);
+
+    // Create societies as separate documents referencing the created city _id
+    for (let i = 0; i < citiesData.length; i++) {
+      const cityInfo = citiesData[i];
+      const createdCity = createdCities[i];
+      if (!cityInfo.societies || cityInfo.societies.length === 0) continue;
+
+      const societiesToCreate = cityInfo.societies.map(s => ({
+        name: s.name,
+        code: s.code,
+        city: createdCity._id,
+        isActive: s.isActive
+      }));
+
+      try {
+        const created = await Society.insertMany(societiesToCreate, { ordered: false });
+        console.log(`   📍 ${createdCity.name.toUpperCase()} - added ${created.length} societies`);
+      } catch (err) {
+        // ignore duplicate errors or continue
+      }
+    }
 
     await mongoose.connection.close();
     console.log('\n✅ Database seeded successfully!');

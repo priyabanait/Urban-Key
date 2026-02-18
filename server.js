@@ -15,11 +15,13 @@ import advertisementSliderRoutes from './routes/advertisementSlider.js';
 import testimonialRoutes from './routes/testimonial.js';
 import sliderRoutes from './routes/sliders.js';
 import citiesRouter from './routes/city.js';
+import societyRoutes from './routes/societyRoutes.js';
 import amenityBookingRoutes from './routes/amenityBookingRoutes.js';
 import amenityRoutes from './routes/amenityRoutes.js';
 import announcementRoutes from './routes/announcementRoutes.js';
 import approvalRoutes from './routes/approvalRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import managerRoutes from './routes/managerRoutes.js';
 import authenticationRoutes from './routes/authentication.js';
 import familyMemberRoutes from './routes/familyMemberRoutes.js';
 import flatRoutes from './routes/flatRoutes.js';
@@ -34,6 +36,7 @@ import vehicleRoutes from './routes/vehicleRoutes.js';
 import petRoutes from './routes/petRoutes.js';
 import dailyHelpRoutes from './routes/dailyHelpRoutes.js';
 import addressRoutes from './routes/addressRoutes.js';
+import adminStatsRoutes from './routes/adminStatsRoutes.js';
 
 // DB connection helper
 import connectDB from './config/db.js';
@@ -106,6 +109,19 @@ if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_WEBSOCKETS === '
 
   io.on('connection', (socket) => {
     console.log('🔌 Socket connected:', socket.id);
+    // Allow clients to join named rooms for targeted notifications
+    socket.on('joinDashboard', () => {
+      socket.join('dashboard');
+      console.log('Socket joined room: dashboard', socket.id);
+    });
+
+    socket.on('joinResident', (residentId) => {
+      if (residentId) {
+        const room = `resident-${residentId}`;
+        socket.join(room);
+        console.log('Socket joined resident room:', room, socket.id);
+      }
+    });
 
     socket.on('disconnect', () => {
       console.log('❌ Socket disconnected:', socket.id);
@@ -156,22 +172,20 @@ app.use((req, res, next) => {
 // ---------------- ROUTES ----------------
 
 app.use('/api/services', serviceRoutes);
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
 app.use('/api/advertisementSlider', advertisementSliderRoutes);
 
 app.use('/api/sliders', sliderRoutes);
 app.use('/api/cities', citiesRouter);
+app.use('/api/societies', societyRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticationRoutes);
-app.use('/api/managers', authRoutes);
+app.use('/api/managers', managerRoutes);
 app.use('/api/towers', towerRoutes);
 app.use('/api/flats', flatRoutes);
 app.use('/api/amenities', amenityRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/polls', pollRoutes);
-app.use('/api/helpdesk', helpdeskRoutes);
+app.use('/api/society-issues', helpdeskRoutes);
 app.use('/api/visitors', visitorRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/approvals', approvalRoutes);
@@ -185,6 +199,7 @@ app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/pets', petRoutes);
 app.use('/api/daily-help', dailyHelpRoutes);
 app.use('/api/addresses', addressRoutes);
+app.use('/api/admin/stats', adminStatsRoutes);
 // ---------------- ROOT ----------------
 app.get('/', (req, res) => {
   res.json({
