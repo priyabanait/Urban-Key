@@ -5,8 +5,6 @@ import User from '../models/User.js';
 import Resident from '../models/Resident.js';
 import FamilyMember from '../models/FamilyMember.js';
 import Notification from '../models/Notification.js';
-import multer from 'multer';
-import { uploadToCloudinary } from '../config/cloudinary.js';
 
 const router = express.Router();
 const SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -27,7 +25,7 @@ router.post('/signup', async (req, res) => {
       });
     }
 
-		// ✅ Check if mobile already exists
+    // ✅ Check if mobile already exists
     const existingUser = await User.findOne({ mobile });
     if (existingUser) {
       return res.status(400).json({
@@ -39,45 +37,69 @@ router.post('/signup', async (req, res) => {
     // ✅ Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-		// ✅ Create User (username removed) — require document upload before completing registration
-		const user = await User.create({
-			mobile,
-			email,
-			fullName,
-			password: hashedPassword,
-			role: 'resident',
-			registrationCompleted: false,
-			status: 'document_pending'
-		});
+    // ✅ Create User (username removed)
+    const user = await User.create({
+      mobile,
+      email,
+      fullName,
+      password: hashedPassword,
+      role: 'resident',
+      registrationCompleted: true,
+      status: 'pending'
+    });
 
-		// Don't create admin notification here. Notify after document upload and admin approval.
+    // ✅ Save Notification
+    try {
+      await Notification.create({
+        type: 'new_resident',
+        title: 'New Resident Registration',
+        message: `${fullName} registered with mobile ${mobile}`,
+        payload: { userId: user._id },
+        read: false
+      });
+    } catch (err) {
+      console.error('Notification save failed:', err);
+    }
 
-		// ✅ Generate JWT (so the user can authenticate to upload their document)
-		const token = jwt.sign(
-			{
-				id: user._id,
-				mobile: user.mobile,
-				role: user.role
-			},
-			SECRET,
-			{ expiresIn: '30d' }
-		);
+    // ✅ Emit socket event
+    try {
+      const io = req.app?.locals?.io;
+      if (io) {
+        io.to('dashboard').emit('dashboard_notification', {
+          type: 'new_resident',
+          title: 'New Resident Registration',
+          message: `${fullName} completed registration`,
+          userId: user._id
+        });
+      }
+    } catch (err) {
+      console.error('Socket emit failed:', err);
+    }
 
-		return res.status(201).json({
-			success: true,
-			message: 'Registration created. Please upload your ID/proof at POST /api/auth/upload-document to complete registration.',
-			uploadEndpoint: '/api/auth/upload-document',
-			token,
-			user: {
-				id: user._id,
-				mobile: user.mobile,
-				email: user.email,
-				fullName: user.fullName,
-				status: user.status,
-				role: user.role,
-				registrationCompleted: user.registrationCompleted
-			}
-		});
+    // ✅ Generate JWT
+    const token = jwt.sign(
+      {
+        id: user._id,
+        mobile: user.mobile,
+        role: user.role
+      },
+      SECRET,
+      { expiresIn: '30d' }
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: 'Registration successful. Awaiting admin approval.',
+      token,
+      user: {
+        id: user._id,
+        mobile: user.mobile,
+        email: user.email,
+        fullName: user.fullName,
+        status: user.status,
+        role: user.role
+      }
+    });
 
   } catch (error) {
     console.error('Signup error:', error);
@@ -159,118 +181,6 @@ router.post('/login', async (req, res) => {
       error: error.message
     });
   }
-});
-
-// -------------------- Upload document after signup --------------------
-// Middleware to verify Bearer token (simple, used only for upload endpoint)
-const verifyToken = (req, res, next) => {
-	try {
-		const authHeader = req.headers.authorization;
-		if (!authHeader || !authHeader.startsWith('Bearer ')) {
-			return res.status(401).json({ success: false, message: 'Authorization token required' });
-		}
-		const token = authHeader.split(' ')[1];
-		const decoded = jwt.verify(token, SECRET);
-		req.user = decoded;
-		return next();
-	} catch (err) {
-		return res.status(401).json({ success: false, message: 'Invalid or expired token' });
-	}
-};
-
-// Multer memory storage for document upload (pdf or images)
-const upload = multer({
-	storage: multer.memoryStorage(),
-	limits: { fileSize: 10 * 1024 * 1024 },
-	fileFilter: (req, file, cb) => {
-		const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
-		if (!allowed.includes(file.mimetype)) {
-			return cb(new Error('Only PDF or image files are allowed'));
-		}
-		cb(null, true);
-	}
-});
-
-// POST /api/auth/upload-document
-router.post('/upload-document', verifyToken, upload.single('document'), async (req, res) => {
-	try {
-		if (!req.file) {
-			return res.status(400).json({ success: false, message: 'Document file is required' });
-		}
-
-		const user = await User.findById(req.user.id);
-		if (!user) {
-			return res.status(404).json({ success: false, message: 'User not found' });
-		}
-
-		// Convert buffer to base64 string for Cloudinary helper
-		const base64String = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-		const publicId = `idproofs/${user._id}_${Date.now()}`;
-		const result = await uploadToCloudinary(base64String, publicId);
-
-		user.idProof = result.secure_url || '';
-		user.idProofPublicId = result.public_id || '';
-		user.documentUploadedAt = new Date();
-		user.registrationCompleted = true; // now can proceed further (awaiting admin approval)
-		user.status = 'pending';
-
-		await user.save();
-
-		// If a Resident exists with this mobile, save document there as well
-		try {
-			const resident = await Resident.findOne({ mobile: user.mobile });
-			if (resident) {
-				resident.document = result.secure_url || '';
-				resident.documentPublicId = result.public_id || '';
-				resident.documentUploadedAt = new Date();
-				await resident.save();
-			}
-		} catch (err) {
-			console.error('Failed to update Resident with document:', err);
-		}
-
-		// Notify admin/dashboard
-		try {
-			await Notification.create({
-				type: 'new_resident',
-				title: 'New Resident Registration',
-				message: `${user.fullName || user.mobile} uploaded ID proof`,
-				payload: { userId: user._id },
-				read: false
-			});
-		} catch (err) {
-			console.error('Notification save failed:', err);
-		}
-
-		try {
-			const io = req.app?.locals?.io;
-			if (io) {
-				io.to('dashboard').emit('dashboard_notification', {
-					type: 'new_resident',
-					title: 'New Resident Registration',
-					message: `${user.fullName || user.mobile} uploaded ID proof`,
-					userId: user._id
-				});
-			}
-		} catch (err) {
-			console.error('Socket emit failed:', err);
-		}
-
-		return res.json({
-			success: true,
-			message: 'Document uploaded. Registration complete and awaiting admin approval.',
-			documentUrl: user.idProof,
-			user: {
-				id: user._id,
-				mobile: user.mobile,
-				registrationCompleted: user.registrationCompleted,
-				status: user.status
-			}
-		});
-	} catch (error) {
-		console.error('Document upload error:', error);
-		return res.status(500).json({ success: false, message: 'Server error during document upload.', error: error.message });
-	}
 });
 
 
