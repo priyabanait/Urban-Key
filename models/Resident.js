@@ -23,10 +23,14 @@ const ResidentSchema = new mongoose.Schema(
 
     ownershipType: {
       type: String,
-      enum: ["Owner", "Tenant", "Family Member"],
+      enum: ["Owner", "Tenant", "Renting with other flatmates"],
       default: "Owner",
     },
-
+ occupancyStatus: {
+      type: String,
+      enum: ["Currently Residing", "Moving In"],
+      default: "Currently Residing"
+    },
     moveInDate: { type: Date },
 
     emergencyContact: {
@@ -37,12 +41,28 @@ const ResidentSchema = new mongoose.Schema(
 
     idProof: { type: String },
 
-    // Photo
-    photo: { type: String }, // URL or file path
-    // Single uploaded document (PDF or image)
-    document: { type: String },
-    documentPublicId: { type: String },
-    documentUploadedAt: { type: Date },
+    documents: {
+  rentalAgreement: {
+    url: { type: String },
+    publicId: { type: String },
+    uploadedAt: { type: Date }
+  },
+  photoId: {
+    url: { type: String },
+    publicId: { type: String },
+    uploadedAt: { type: Date }
+  },
+  policeVerification: {
+    url: { type: String },
+    publicId: { type: String },
+    uploadedAt: { type: Date }
+  },
+  indexCopy: {
+    url: { type: String },
+    publicId: { type: String },
+    uploadedAt: { type: Date }
+  }
+},
 
     isActive: { type: Boolean, default: true },
   },

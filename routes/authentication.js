@@ -13,67 +13,76 @@ const SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
  * Unified Signup & Registration API
  * Handles both user creation and complete profile registration in one call
  */
-router.post('/signup', async (req, res) => {
+router.post("/signup", async (req, res) => {
   try {
-    const { password, mobile, fullName, email } = req.body;
+    const { fullName, mobile, email, password, consent } = req.body;
 
-    // ✅ Validate required fields
-    if (!password || !mobile || !fullName || !email) {
+    // ✅ Validate fields
+    if (!fullName || !mobile || !email || !password || consent !== true) {
       return res.status(400).json({
         success: false,
-        message: 'Password, mobile, full name and email are required.'
+        message: "All fields including consent are required."
       });
     }
 
-    // ✅ Check if mobile already exists
-    const existingUser = await User.findOne({ mobile });
-    if (existingUser) {
+    // ✅ Check existing mobile
+    const existingMobile = await User.findOne({ mobile });
+    if (existingMobile) {
       return res.status(400).json({
         success: false,
-        message: 'Mobile number already registered.'
+        message: "Mobile already registered."
+      });
+    }
+
+    // ✅ Check existing email
+    const existingEmail = await User.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered."
       });
     }
 
     // ✅ Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ✅ Create User (username removed)
+    // ✅ Create user
     const user = await User.create({
+      fullName,
       mobile,
       email,
-      fullName,
       password: hashedPassword,
-      role: 'resident',
+      role: "resident",
+      status: "pending",
       registrationCompleted: true,
-      status: 'pending'
+      consent: true
     });
 
-    // ✅ Save Notification
+    // ✅ Save notification
     try {
       await Notification.create({
-        type: 'new_resident',
-        title: 'New Resident Registration',
+        type: "new_resident",
+        title: "New Resident Registration",
         message: `${fullName} registered with mobile ${mobile}`,
         payload: { userId: user._id },
         read: false
       });
     } catch (err) {
-      console.error('Notification save failed:', err);
+      console.error("Notification error:", err);
     }
 
     // ✅ Emit socket event
     try {
       const io = req.app?.locals?.io;
       if (io) {
-        io.to('dashboard').emit('dashboard_notification', {
-          type: 'new_resident',
-          title: 'New Resident Registration',
+        io.to("dashboard").emit("dashboard_notification", {
+          type: "new_resident",
           message: `${fullName} completed registration`,
           userId: user._id
         });
       }
     } catch (err) {
-      console.error('Socket emit failed:', err);
+      console.error("Socket error:", err);
     }
 
     // ✅ Generate JWT
@@ -84,29 +93,28 @@ router.post('/signup', async (req, res) => {
         role: user.role
       },
       SECRET,
-      { expiresIn: '30d' }
+      { expiresIn: "30d" }
     );
 
     return res.status(201).json({
       success: true,
-      message: 'Registration successful. Awaiting admin approval.',
+      message: "Registration successful. Awaiting admin approval.",
       token,
       user: {
         id: user._id,
+        fullName: user.fullName,
         mobile: user.mobile,
         email: user.email,
-        fullName: user.fullName,
-        status: user.status,
-        role: user.role
+        role: user.role,
+        status: user.status
       }
     });
 
   } catch (error) {
-    console.error('Signup error:', error);
+    console.error("Signup error:", error);
     return res.status(500).json({
       success: false,
-      message: 'Server error during signup.',
-      error: error.message
+      message: "Server error during signup."
     });
   }
 });

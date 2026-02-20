@@ -23,6 +23,7 @@ router.post('/', async (req, res) => {
       flat: flatId,
       residentType,
       ownershipType,
+      occupancyStatus,
       moveInDate,
       emergencyContact,
       idProof,
@@ -95,11 +96,21 @@ router.post('/', async (req, res) => {
       tower,
       flatNumber,
       ownershipType: finalOwnership,
+      occupancyStatus: occupancyStatus || 'Currently Residing',
       moveInDate,
-      emergencyContact,
       idProof,
       photo
     };
+
+    // Handle emergencyContact as nested object
+    if (emergencyContact) {
+      if (typeof emergencyContact === 'object') {
+        residentPayload.emergencyContact = emergencyContact;
+      } else {
+        // Fallback if sent as string
+        residentPayload.emergencyContact = { phone: emergencyContact };
+      }
+    }
 
     if (flatDoc) {
       residentPayload.flat = flatDoc._id;
@@ -311,24 +322,45 @@ const upload = multer({
   }
 });
 
-router.post('/:id/upload-document', upload.single('document'), async (req, res) => {
+/* ================= UPLOAD DOCUMENT FOR RESIDENT (by type) ================= */
+router.post('/:id/upload-document/:documentType', upload.single('document'), async (req, res) => {
   try {
+    const { id, documentType } = req.params;
+    
     if (!req.file) return res.status(400).json({ success: false, message: 'Document file is required' });
 
-    const resident = await Resident.findById(req.params.id);
+    // Validate document type
+    const validTypes = ['rentalAgreement', 'photoId', 'policeVerification', 'indexCopy'];
+    if (!validTypes.includes(documentType)) {
+      return res.status(400).json({ success: false, message: `Invalid document type. Allowed: ${validTypes.join(', ')}` });
+    }
+
+    const resident = await Resident.findById(id);
     if (!resident) return res.status(404).json({ success: false, message: 'Resident not found' });
 
     const base64String = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-    const publicId = `resident_documents/${resident._id}_${Date.now()}`;
+    const publicId = `resident_documents/${resident._id}_${documentType}_${Date.now()}`;
     const result = await uploadToCloudinary(base64String, publicId);
 
-    resident.document = result.secure_url || '';
-    resident.documentPublicId = result.public_id || '';
-    resident.documentUploadedAt = new Date();
+    // Initialize documents object if it doesn't exist
+    if (!resident.documents) {
+      resident.documents = {};
+    }
+
+    // Update specific document type
+    resident.documents[documentType] = {
+      url: result.secure_url || '',
+      publicId: result.public_id || '',
+      uploadedAt: new Date()
+    };
 
     await resident.save();
 
-    return res.json({ success: true, message: 'Document uploaded', document: resident.document });
+    return res.json({ 
+      success: true, 
+      message: `${documentType} uploaded successfully`, 
+      documents: resident.documents 
+    });
   } catch (error) {
     console.error('Resident document upload error:', error);
     return res.status(500).json({ success: false, message: 'Failed to upload document' });
