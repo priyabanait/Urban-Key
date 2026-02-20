@@ -3,6 +3,7 @@ import Maintenance from '../models/Maintenance.js';
 import Flat from '../models/Flat.js';
 import Resident from '../models/Resident.js';
 import Society from '../models/Society.js';
+import AddMaintenanceCost from '../models/AddMaintenanceCost.js';
 import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
@@ -46,11 +47,11 @@ router.get('/', authenticate, async (req, res) => {
         if (r.flat?.flatNo?.toString().toLowerCase().includes(searchLower)) {
           return true;
         }
-        // Search by resident name
+        // Search by resident name (if resident exists)
         if (r.resident?.fullName?.toLowerCase().includes(searchLower)) {
           return true;
         }
-        // Search by mobile
+        // Search by mobile (if resident exists)
         if (r.resident?.mobile?.includes(search)) {
           return true;
         }
@@ -119,6 +120,97 @@ router.get('/stats/summary', authenticate, async (req, res) => {
   }
 });
 
+// Calculate maintenance amount for a flat (based on flat type) - MUST be before /:id
+router.get('/calculate-amount', authenticate, async (req, res) => {
+  try {
+    const { flatId, residentId } = req.query;
+    
+    if (!flatId && !residentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Either flatId or residentId is required'
+      });
+    }
+
+    let flat = null;
+    if (flatId) {
+      flat = await Flat.findById(flatId).populate('society');
+    } else if (residentId) {
+      const resident = await Resident.findById(residentId).populate({
+        path: 'flat',
+        populate: { path: 'society' }
+      });
+      if (resident && resident.flat) {
+        flat = resident.flat;
+      }
+    }
+
+    if (!flat) {
+      return res.status(404).json({
+        success: false,
+        message: 'Flat not found'
+      });
+    }
+
+    // Fetch configured rates from AddMaintenanceCost for this society and flat type
+    const flatType = flat.flatType || '1BHK';
+    let maintenanceCostDoc = await AddMaintenanceCost.findOne({
+      society: flat.society._id,
+      flatType: flatType,
+      isActive: true
+    });
+
+    // Fallback to default rates if not configured
+    let maintenanceAmount = 1000;
+    if (maintenanceCostDoc) {
+      maintenanceAmount = maintenanceCostDoc.amount || 1000;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        maintenanceAmount: maintenanceAmount,
+        flatType: flatType,
+        configured: !!maintenanceCostDoc,
+        source: maintenanceCostDoc ? 'database' : 'default'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error calculating maintenance amount',
+      error: error.message
+    });
+  }
+});
+// Delete maintenance record
+router.delete('/:id', authenticate, async (req, res) => {
+  try {
+    const record = await Maintenance.findById(req.params.id);
+
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        message: 'Maintenance record not found'
+      });
+    }
+
+    await Maintenance.findByIdAndDelete(req.params.id);
+
+    res.json({
+      success: true,
+      message: 'Maintenance record deleted successfully'
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting maintenance record',
+      error: error.message
+    });
+  }
+});
+
 // Get single maintenance record
 router.get('/:id', authenticate, async (req, res) => {
   try {
@@ -159,6 +251,7 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const {
       flat: flatId,
+      tower: towerId,
       resident: residentId,
       billingPeriod,
       parkingCharge,
@@ -172,41 +265,49 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Flat id is required' });
     }
 
-    const flat = await Flat.findById(flatId).populate('society');
+    const flat = await Flat.findById(flatId).populate('society').populate('tower');
     if (!flat) {
       return res.status(404).json({ success: false, message: 'Flat not found' });
     }
 
-    // Ensure maintenance is created for the same society as authenticated user
-    if (req.user && req.user.societyId && flat.society && flat.society._id.toString() !== req.user.societyId.toString()) {
-      return res.status(403).json({ success: false, message: 'Flat does not belong to your society' });
+    if (!req.user || !req.user.societyId) {
+      return res.status(401).json({ success: false, message: 'User not properly authenticated' });
     }
 
-    // Determine resident
+    // Resident optional
     let resident = null;
-    if (residentId) resident = await Resident.findById(residentId);
-    if (!resident && flat.resident) resident = await Resident.findById(flat.resident);
+    if (residentId && residentId.trim()) {
+      resident = await Resident.findById(residentId).catch(() => null);
+    } else if (flat.resident) {
+      resident = await Resident.findById(flat.resident).catch(() => null);
+    }
 
-    // Default rates per flat type (can be moved to DB later)
-    const typeRates = {
-      '1BHK': { maintenance: 1000, water: 200, parking: 0 },
-      '2BHK': { maintenance: 1500, water: 300, parking: 0 },
-      '3BHK': { maintenance: 2000, water: 400, parking: 0 },
-      '4BHK': { maintenance: 2500, water: 500, parking: 0 },
-      '5BHK': { maintenance: 3000, water: 600, parking: 0 },
-      'Penthouse': { maintenance: 5000, water: 800, parking: 0 },
-      'Studio': { maintenance: 800, water: 150, parking: 0 }
-    };
+    const flatType = flat.flatType;
 
-    const flatType = flat.flatType || '1BHK';
-    const rates = typeRates[flatType] || typeRates['1BHK'];
+    // 🔥 Only fetch from AddMaintenanceCost (NO FALLBACK)
+    const maintenanceCostDoc = await AddMaintenanceCost.findOne({
+      society: flat.society._id,
+      flatType: flatType,
+      isActive: true
+    });
 
-    const maintenanceCharge = rates.maintenance;
-    const waterCharge = rates.water;
-    const parking = typeof parkingCharge === 'number' ? parkingCharge : rates.parking;
+    if (!maintenanceCostDoc) {
+      return res.status(400).json({
+        success: false,
+        message: `Maintenance cost not configured for flat type ${flatType}`
+      });
+    }
+
+    const maintenanceCharge = maintenanceCostDoc.amount;
+    const waterCharge = maintenanceCostDoc.waterCharge || 0;
+    const parkingRate = maintenanceCostDoc.parkingCharge || 0;
+
+    const parking = typeof parkingCharge === 'number' ? parkingCharge : parkingRate;
     const amenity = typeof amenityCharge === 'number' ? amenityCharge : 0;
 
-    const otherTotal = Array.isArray(otherCharges) ? otherCharges.reduce((s, c) => s + (c.amount || 0), 0) : 0;
+    const otherTotal = Array.isArray(otherCharges)
+      ? otherCharges.reduce((s, c) => s + (c.amount || 0), 0)
+      : 0;
 
     const charges = {
       maintenanceCharge,
@@ -217,31 +318,162 @@ router.post('/', authenticate, async (req, res) => {
       otherCharges: Array.isArray(otherCharges) ? otherCharges : []
     };
 
-    const totalAmount = maintenanceCharge + waterCharge + parking + amenity + (penaltyCharge || 0) + otherTotal;
+    const totalAmount =
+      maintenanceCharge +
+      waterCharge +
+      parking +
+      amenity +
+      (penaltyCharge || 0) +
+      otherTotal;
 
-    // Always use authenticated user's society (ensures consistency with GET filter)
-    if (!req.user.societyId) {
-      return res.status(400).json({ success: false, message: 'User society not found' });
-    }
-
-    const record = await Maintenance.create({
+    const payload = {
       society: req.user.societyId,
+      tower: towerId || flat.tower?._id || flat.tower,
       flat: flat._id,
-      resident: resident ? resident._id : (req.user._id || null),
-      billingPeriod: billingPeriod || {
-        month: (new Date()).getMonth() + 1,
-        year: (new Date()).getFullYear()
-      },
+      billingPeriod:
+        billingPeriod && billingPeriod.month && billingPeriod.year
+          ? billingPeriod
+          : {
+              month: new Date().getMonth() + 1,
+              year: new Date().getFullYear()
+            },
       charges,
       totalAmount,
-      dueDate: dueDate ? new Date(dueDate) : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 5) // default 5th of next month
+      dueDate: dueDate
+        ? new Date(dueDate)
+        : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 5)
+    };
+
+    if (resident) {
+      payload.resident = resident._id;
+    }
+
+    const record = await Maintenance.create(payload);
+
+    res.status(201).json({
+      success: true,
+      message: 'Maintenance bill created successfully',
+      data: record
     });
 
-    res.status(201).json({ success: true, message: 'Maintenance bill created successfully', data: record });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: 'Error creating maintenance bill',
+      error: error.message
+    });
+  }
+});
+
+
+// Bulk create maintenance bills
+router.post('/bulk', authenticate, async (req, res) => {
+  try {
+    const { month, year, dueDate, charges } = req.body;
+
+    if (!month || !year || !charges) {
+      return res.status(400).json({
+        success: false,
+        message: 'month, year, and charges are required'
+      });
+    }
+
+    if (!req.user.societyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User society not found'
+      });
+    }
+
+    // Get all flats for the user's society
+    const flats = await Flat.find({
+      society: req.user.societyId,
+      isActive: true
+    }).populate('society');
+
+    const createdBills = [];
+    const errors = [];
+
+    for (const flat of flats) {
+      try {
+        // Check if bill already exists for this flat and month/year
+        const existingBill = await Maintenance.findOne({
+          flat: flat._id,
+          'billingPeriod.month': parseInt(month),
+          'billingPeriod.year': parseInt(year)
+        });
+
+        if (existingBill) {
+          errors.push({
+            flatNo: flat.flatNo,
+            message: 'Bill already exists for this month/year'
+          });
+          continue;
+        }
+
+        // Get resident (optional)
+        let resident = null;
+        if (flat.resident) {
+          resident = await Resident.findById(flat.resident).catch(() => null);
+        }
+
+        // Calculate total amount
+        const totalAmount = (charges.maintenanceCharge || 0) +
+          (charges.waterCharge || 0) +
+          (charges.parkingCharge || 0) +
+          (charges.amenityCharge || 0) +
+          (charges.penaltyCharge || 0);
+
+        const billPayload = {
+          society: req.user.societyId,
+          tower: flat.tower,
+          flat: flat._id,
+          billingPeriod: {
+            month: parseInt(month),
+            year: parseInt(year)
+          },
+          charges,
+          totalAmount,
+          dueDate: dueDate ? new Date(dueDate) : new Date(year, month, 5)
+        };
+
+        // Include resident only if found
+        if (resident) {
+          billPayload.resident = resident._id;
+        }
+
+        const bill = await Maintenance.create(billPayload);
+
+        createdBills.push({
+          flatNo: flat.flatNo,
+          billId: bill._id,
+          totalAmount: bill.totalAmount
+        });
+      } catch (billErr) {
+        errors.push({
+          flatNo: flat.flatNo,
+          message: billErr.message
+        });
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Created ${createdBills.length} bills`,
+      data: {
+        created: createdBills,
+        errors: errors.length > 0 ? errors : undefined,
+        summary: {
+          total: flats.length,
+          created: createdBills.length,
+          failed: errors.length
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error creating bulk maintenance bills',
       error: error.message
     });
   }

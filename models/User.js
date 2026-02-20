@@ -25,6 +25,18 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // ID proof / uploaded document URL
+  idProof: {
+    type: String,
+    default: ''
+  },
+  idProofPublicId: {
+    type: String,
+    default: ''
+  },
+  documentUploadedAt: {
+    type: Date
+  },
   role: {
     type: String,
     enum: ['user', 'resident'],

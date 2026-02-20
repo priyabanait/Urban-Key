@@ -2,6 +2,8 @@ import express from 'express';
 import Resident from '../models/Resident.js';
 import User from '../models/User.js';
 import Flat from '../models/Flat.js';
+import multer from 'multer';
+import { uploadToCloudinary } from '../config/cloudinary.js';
 
 const router = express.Router();
 
@@ -294,6 +296,42 @@ router.get('/', async (req, res) => {
       success: false,
       message: 'Failed to fetch residents'
     });
+  }
+});
+
+/* ================= UPLOAD DOCUMENT FOR RESIDENT (Admin) ================= */
+// Multer memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+    if (!allowed.includes(file.mimetype)) return cb(new Error('Only PDF or image files are allowed'));
+    cb(null, true);
+  }
+});
+
+router.post('/:id/upload-document', upload.single('document'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'Document file is required' });
+
+    const resident = await Resident.findById(req.params.id);
+    if (!resident) return res.status(404).json({ success: false, message: 'Resident not found' });
+
+    const base64String = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    const publicId = `resident_documents/${resident._id}_${Date.now()}`;
+    const result = await uploadToCloudinary(base64String, publicId);
+
+    resident.document = result.secure_url || '';
+    resident.documentPublicId = result.public_id || '';
+    resident.documentUploadedAt = new Date();
+
+    await resident.save();
+
+    return res.json({ success: true, message: 'Document uploaded', document: resident.document });
+  } catch (error) {
+    console.error('Resident document upload error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to upload document' });
   }
 });
 

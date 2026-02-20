@@ -39,6 +39,10 @@ const ResidentSchema = new mongoose.Schema(
 
     // Photo
     photo: { type: String }, // URL or file path
+    // Single uploaded document (PDF or image)
+    document: { type: String },
+    documentPublicId: { type: String },
+    documentUploadedAt: { type: Date },
 
     isActive: { type: Boolean, default: true },
   },

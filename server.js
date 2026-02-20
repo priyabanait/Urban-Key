@@ -37,7 +37,7 @@ import petRoutes from './routes/petRoutes.js';
 import dailyHelpRoutes from './routes/dailyHelpRoutes.js';
 import addressRoutes from './routes/addressRoutes.js';
 import adminStatsRoutes from './routes/adminStatsRoutes.js';
-
+import addmaintenancecostRoutes from './routes/addmaintenancecostRoutes.js';
 // DB connection helper
 import connectDB from './config/db.js';
 
@@ -200,6 +200,7 @@ app.use('/api/pets', petRoutes);
 app.use('/api/daily-help', dailyHelpRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/admin/stats', adminStatsRoutes);
+app.use('/api/addmaintenancecost',addmaintenancecostRoutes);
 // ---------------- ROOT ----------------
 app.get('/', (req, res) => {
   res.json({
