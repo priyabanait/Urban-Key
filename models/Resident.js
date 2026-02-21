@@ -19,7 +19,7 @@ mobile: {
 },
 
     // ✅ Location
-    city: { type: String, required: true },
+    city: { type: String, required: false },
     society: {
       type: mongoose.Schema.Types.Mixed, // Can be string (legacy) or ObjectId
       required: false

@@ -6,182 +6,275 @@ import multer from 'multer';
 import { uploadToCloudinary } from '../config/cloudinary.js';
 
 const router = express.Router();
-
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+    if (!allowed.includes(file.mimetype)) return cb(new Error('Only PDF or image files are allowed'));
+    cb(null, true);
+  }
+});
 /* ================= CREATE RESIDENT ================= */
-router.post('/', async (req, res) => {
-  try {
-    const {
-      loginId,
-      fullName,
-      city,
-      society,
-      email,
-      phone,
-      mobile,
-      tower,
-      flatNumber,
-      flat: flatId,
-      residentType,
-      ownershipType,
-      occupancyStatus,
-      moveInDate,
-      emergencyContact,
-      documents,   // ✅ important change
-      photo
-    } = req.body;
-
-    console.log('POST /api/residents - Request body:', { fullName, city, society, flatNumber });
-
-    const finalMobile = mobile || phone;
-
-    let finalOwnership = ownershipType || residentType || 'Flat Owner';
-    finalOwnership =
-      finalOwnership.toLowerCase() === 'tenant' ? 'Tenant' : 'Flat Owner';
-
-    /* -------- REQUIRED FIELD CHECK -------- */
-    if (!fullName || !finalMobile || !city || !society || !flatNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'fullName, mobile, city, society and flatNumber are required'
-      });
-    }
-
-    /* -------- DOCUMENT VALIDATION BASED ON OWNERSHIP -------- */
-
-    if (finalOwnership === 'Flat Owner') {
-      if (!documents?.photoId || !documents?.indexCopy) {
-        return res.status(400).json({
-          success: false,
-          message: 'FlatOwner must upload photoId and indexCopy'
-        });
-      }
-    }
-
-    if (finalOwnership === 'Tenant') {
-      if (
-        !documents?.photoId ||
-        !documents?.policeVerification ||
-        !documents?.rentalAgreement
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: 'Tenant must upload photoId, policeVerification and rentalAgreement'
-        });
-      }
-    }
-
-    /* -------- FIND USER (OPTIONAL) -------- */
-    let user = null;
-    if (loginId) {
-      user = await User.findById(loginId);
-    } else {
-      user = await User.findOne({ mobile: finalMobile });
-    }
-
-    /* -------- DUPLICATE CHECK -------- */
-    const existingResident = await Resident.findOne({ mobile: finalMobile });
-    if (existingResident) {
-      return res.status(400).json({
-        success: false,
-        message: 'Resident already exists for this mobile number'
-      });
-    }
-
-    /* -------- RESOLVE FLAT -------- */
-    let flatDoc = null;
+router.post(
+  '/',
+  upload.fields([
+    { name: 'photo', maxCount: 1 },
+    { name: 'photoId', maxCount: 1 },
+    { name: 'indexCopy', maxCount: 1 },
+    { name: 'policeVerification', maxCount: 1 },
+    { name: 'rentalAgreement', maxCount: 1 }
+  ]),
+  async (req, res) => {
     try {
+      const {
+        loginId,
+        fullName,
+        city,
+        society,
+        email,
+        phone,
+        mobile,
+        tower,
+        flatNumber,
+        flat: flatId,
+        residentType,
+        ownershipType,
+        occupancyStatus,
+        moveInDate,
+        emergencyContact
+      } = req.body;
+
+      const finalMobile = mobile || phone;
+
+      let finalOwnership = ownershipType || residentType || 'Flat Owner';
+      finalOwnership =
+        finalOwnership.toLowerCase() === 'tenant'
+          ? 'Tenant'
+          : 'Flat Owner';
+
+      /* ================= REQUIRED CHECK ================= */
+
+      if (!fullName || !finalMobile || !city || !society || !flatNumber) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'fullName, mobile, city, society and flatNumber are required'
+        });
+      }
+
+      /* ================= CHECK EXISTING RESIDENT ================= */
+
+      let existingResident = await Resident.findOne({
+        mobile: finalMobile
+      });
+
+      // If resident exists and has no city/society yet, allow update (profile completion)
+      // Otherwise if it has complete profile, return error
+      const isProfileUpdate = existingResident && !existingResident.city;
+
+      /* ================= FILE UPLOAD ================= */
+
+      let uploadedDocuments = {};
+      let uploadedPhoto = null;
+
+      if (req.files) {
+        if (req.files.photo) {
+          const base64 = req.files.photo[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.photo[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'residents'
+          );
+          uploadedPhoto = result.secure_url;
+        }
+
+        if (req.files.photoId) {
+          const base64 = req.files.photoId[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.photoId[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.photoId = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+
+        if (req.files.indexCopy) {
+          const base64 = req.files.indexCopy[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.indexCopy[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.indexCopy = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+
+        if (req.files.policeVerification) {
+          const base64 = req.files.policeVerification[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.policeVerification[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.policeVerification = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+
+        if (req.files.rentalAgreement) {
+          const base64 = req.files.rentalAgreement[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.rentalAgreement[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.rentalAgreement = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+      }
+
+      /* ================= DOCUMENT VALIDATION ================= */
+
+      if (finalOwnership === 'Flat Owner') {
+        if (!uploadedDocuments.photoId || !uploadedDocuments.indexCopy) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'FlatOwner must upload photoId and indexCopy'
+          });
+        }
+      }
+
+      if (finalOwnership === 'Tenant') {
+        if (
+          !uploadedDocuments.photoId ||
+          !uploadedDocuments.policeVerification ||
+          !uploadedDocuments.rentalAgreement
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'Tenant must upload photoId, policeVerification and rentalAgreement'
+          });
+        }
+      }
+
+      /* ================= RESOLVE FLAT ================= */
+
+      let flatDoc = null;
+
       if (flatId) {
         flatDoc = await Flat.findById(flatId)
           .populate('tower', 'name')
           .populate('society', 'name');
-      } else if (flatNumber) {
-        flatDoc = await Flat.findOne({ flatNo: flatNumber, isActive: true })
+      } else {
+        flatDoc = await Flat.findOne({
+          flatNo: flatNumber,
+          isActive: true
+        })
           .populate('tower', 'name')
           .populate('society', 'name');
-
-        if (flatDoc && society) {
-          const socName = (flatDoc.society && flatDoc.society.name) || '';
-          if (socName.toString().toLowerCase() !== society.toString().toLowerCase()) {
-            flatDoc = null;
-          }
-        }
       }
-    } catch (err) {
-      console.error('Error resolving flat:', err);
-      flatDoc = null;
-    }
 
-    /* -------- CREATE RESIDENT -------- */
-    const residentPayload = {
-      fullName,
-      email,
-      mobile: finalMobile,
-      city,
-      society,
-      tower,
-      flatNumber,
-      ownershipType: finalOwnership,
-      occupancyStatus: occupancyStatus || 'Currently Residing',
-      moveInDate,
-      photo,
-      documents   // ✅ save full documents object
-    };
+      /* ================= CREATE OR UPDATE RESIDENT ================= */
 
-    if (emergencyContact) {
-      residentPayload.emergencyContact =
-        typeof emergencyContact === 'object'
-          ? emergencyContact
-          : { phone: emergencyContact };
-    }
+      const residentPayload = {
+        fullName,
+        email,
+        mobile: finalMobile,
+        city,
+        society,
+        tower,
+        flatNumber,
+        ownershipType: finalOwnership,
+        occupancyStatus:
+          occupancyStatus || 'Currently Residing',
+        moveInDate,
+        photo: uploadedPhoto,
+        documents: uploadedDocuments
+      };
 
-    if (flatDoc) {
-      residentPayload.flat = flatDoc._id;
-      residentPayload.flatNumber = flatDoc.flatNo;
+      if (emergencyContact) {
+        residentPayload.emergencyContact =
+          typeof emergencyContact === 'object'
+            ? emergencyContact
+            : { phone: emergencyContact };
+      }
 
-      if (!residentPayload.tower && flatDoc.tower)
-        residentPayload.tower = flatDoc.tower.name || flatDoc.tower;
+      if (flatDoc) {
+        residentPayload.flat = flatDoc._id;
+        residentPayload.flatNumber = flatDoc.flatNo;
+      }
 
-      if (!residentPayload.society && flatDoc.society)
-        residentPayload.society = flatDoc.society.name || flatDoc.society;
-    }
+      let resident;
+      if (existingResident) {
+        // Update existing resident (profile completion)
+        resident = await Resident.findByIdAndUpdate(
+          existingResident._id,
+          residentPayload,
+          { new: true, runValidators: true }
+        );
+        console.log(`✅ Updated resident profile for ${finalMobile}`);
+      } else {
+        // Create new resident
+        resident = await Resident.create(
+          residentPayload
+        );
+        console.log(`✅ Created new resident profile for ${finalMobile}`);
+      }
 
-    const resident = await Resident.create(residentPayload);
+      /* ================= LINK FLAT ================= */
 
-    /* -------- LINK FLAT -------- */
-    try {
       if (flatDoc) {
         await Flat.findByIdAndUpdate(flatDoc._id, {
           resident: resident._id,
           occupancyStatus: 'Occupied'
         });
-
-        console.log(`✅ Flat ${flatDoc.flatNo} marked as OCCUPIED`);
       }
-    } catch (linkErr) {
-      console.error('Failed to link resident to flat:', linkErr);
+
+      /* ================= UPDATE USER ================= */
+
+      let user = null;
+
+      if (loginId) {
+        user = await User.findById(loginId);
+      } else {
+        user = await User.findOne({ mobile: finalMobile });
+      }
+
+      if (user) {
+        user.registrationCompleted = true;
+        user.role = 'resident';
+        await user.save();
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: 'Resident added successfully',
+        data: resident
+      });
+    } catch (error) {
+      console.error('CREATE RESIDENT ERROR:', error);
+      return res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to create resident'
+      });
     }
-
-    /* -------- UPDATE USER -------- */
-    if (user) {
-      user.registrationCompleted = true;
-      user.role = 'resident';
-      await user.save();
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: 'Resident added successfully',
-      data: resident
-    });
-
-  } catch (error) {
-    console.error('CREATE RESIDENT ERROR:', error);
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to create resident'
-    });
   }
-});
+);
 
 /* ================= GET ALL RESIDENTS ================= */
 router.get('/', async (req, res) => {
@@ -336,62 +429,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-/* ================= UPLOAD DOCUMENT FOR RESIDENT (Admin) ================= */
-// Multer memory storage
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowed = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
-    if (!allowed.includes(file.mimetype)) return cb(new Error('Only PDF or image files are allowed'));
-    cb(null, true);
-  }
-});
 
-/* ================= UPLOAD DOCUMENT FOR RESIDENT (by type) ================= */
-router.post('/:id/upload-document/:documentType', upload.single('document'), async (req, res) => {
-  try {
-    const { id, documentType } = req.params;
-    
-    if (!req.file) return res.status(400).json({ success: false, message: 'Document file is required' });
 
-    // Validate document type
-    const validTypes = ['rentalAgreement', 'photoId', 'policeVerification', 'indexCopy'];
-    if (!validTypes.includes(documentType)) {
-      return res.status(400).json({ success: false, message: `Invalid document type. Allowed: ${validTypes.join(', ')}` });
-    }
-
-    const resident = await Resident.findById(id);
-    if (!resident) return res.status(404).json({ success: false, message: 'Resident not found' });
-
-    const base64String = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-    const publicId = `resident_documents/${resident._id}_${documentType}_${Date.now()}`;
-    const result = await uploadToCloudinary(base64String, publicId);
-
-    // Initialize documents object if it doesn't exist
-    if (!resident.documents) {
-      resident.documents = {};
-    }
-
-    // Update specific document type
-    resident.documents[documentType] = {
-      url: result.secure_url || '',
-      publicId: result.public_id || '',
-      uploadedAt: new Date()
-    };
-
-    await resident.save();
-
-    return res.json({ 
-      success: true, 
-      message: `${documentType} uploaded successfully`, 
-      documents: resident.documents 
-    });
-  } catch (error) {
-    console.error('Resident document upload error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to upload document' });
-  }
-});
 
 /* ================= GET RESIDENT BY ID ================= */
 router.get('/:id', async (req, res) => {

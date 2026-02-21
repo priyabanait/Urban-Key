@@ -58,6 +58,24 @@ router.post("/signup", async (req, res) => {
       consent: true
     });
 
+    // ✅ Auto-create resident record
+    try {
+      const residentExists = await Resident.findOne({ mobile });
+      if (!residentExists) {
+        await Resident.create({
+          fullName,
+          email,
+          mobile,
+          ownershipType: 'Flat Owner',
+          occupancyStatus: 'Currently Residing'
+        });
+        console.log(`✅ Auto-created resident profile for ${fullName}`);
+      }
+    } catch (err) {
+      console.error("Error creating resident profile:", err);
+      // Don't fail signup if resident creation fails
+    }
+
     // ✅ Save notification
     try {
       await Notification.create({
