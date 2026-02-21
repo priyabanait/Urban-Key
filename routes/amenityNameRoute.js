@@ -1,15 +1,14 @@
 import express from "express";
 import multer from "multer";
-import fs from "fs";
 import Amenity from "../models/AmenityName.js";
 import cloudinary, { uploadToCloudinary } from "../config/cloudinary.js";
 
 const router = express.Router();
 
-/* ================= MULTER LOCAL STORAGE ================= */
+/* ================= MULTER MEMORY STORAGE ================= */
 
 const upload = multer({
-  dest: "uploads/",
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }
 });
 
@@ -40,15 +39,16 @@ router.post("/", upload.single("amenityImage"), async (req, res) => {
     let imageData = null;
 
     if (req.file) {
-      const result = await uploadToCloudinary(req.file.path);
+      // Convert buffer to base64
+      const base64String = req.file.buffer.toString('base64');
+      const dataURI = `data:${req.file.mimetype};base64,${base64String}`;
+      
+      const result = await uploadToCloudinary(dataURI);
 
       imageData = {
         url: result.secure_url,
         publicId: result.public_id,
       };
-
-      // delete local file after upload
-      fs.unlinkSync(req.file.path);
     }
 
     const amenity = await Amenity.create({
@@ -113,14 +113,16 @@ router.put("/:id", upload.single("amenityImage"), async (req, res) => {
         await cloudinary.uploader.destroy(amenity.amenityImage.publicId);
       }
 
-      const result = await uploadToCloudinary(req.file.path);
+      // Convert buffer to base64
+      const base64String = req.file.buffer.toString('base64');
+      const dataURI = `data:${req.file.mimetype};base64,${base64String}`;
+      
+      const result = await uploadToCloudinary(dataURI);
 
       amenity.amenityImage = {
         url: result.secure_url,
         publicId: result.public_id,
       };
-
-      fs.unlinkSync(req.file.path);
     }
 
     await amenity.save();

@@ -5,47 +5,6 @@ import Society from '../models/Society.js';
 const router = express.Router();
 
 /* ======================================================
-   STATS (MUST BE BEFORE :id ROUTES)
-====================================================== */
-router.get('/stats/summary', async (req, res) => {
-  try {
-    const total = await City.countDocuments();
-    const active = await City.countDocuments({ isActive: true });
-    const inactive = await City.countDocuments({ isActive: false });
-
-    res.json({ total, active, inactive });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/* ======================================================
-   GET SOCIETIES BY CITY NAME (MUST BE BEFORE :id)
-====================================================== */
-router.get('/societies/:cityName', async (req, res) => {
-  try {
-    const { cityName } = req.params;
-    const { state } = req.query;
-
-    const query = {
-      name: { $regex: `^${cityName}$`, $options: 'i' }
-    };
-
-    if (state) {
-      query.state = { $regex: `^${state}$`, $options: 'i' };
-    }
-
-    const city = await City.findOne(query);
-    if (!city) return res.json([]);
-
-    const societies = await Society.find({ city: city._id, isActive: { $ne: false } }).sort({ name: 1 });
-    res.json(societies);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/* ======================================================
    GET ALL CITIES
 ====================================================== */
 router.get('/', async (req, res) => {
@@ -153,12 +112,45 @@ router.post('/bulk', async (req, res) => {
 });
 
 /* ======================================================
-   (REMOVED DUPLICATE STATS - NOW AT TOP OF FILE)
+   STATS
 ====================================================== */
+router.get('/stats/summary', async (req, res) => {
+  try {
+    const total = await City.countDocuments();
+    const active = await City.countDocuments({ isActive: true });
+    const inactive = await City.countDocuments({ isActive: false });
+
+    res.json({ total, active, inactive });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 /* ======================================================
-   (REMOVED DUPLICATE GET SOCIETIES - NOW AT TOP OF FILE)
+   GET SOCIETIES BY CITY NAME
 ====================================================== */
+router.get('/societies/:cityName', async (req, res) => {
+  try {
+    const { cityName } = req.params;
+    const { state } = req.query;
+
+    const query = {
+      name: { $regex: `^${cityName}$`, $options: 'i' }
+    };
+
+    if (state) {
+      query.state = { $regex: `^${state}$`, $options: 'i' };
+    }
+
+    const city = await City.findOne(query);
+    if (!city) return res.json([]);
+
+    const societies = await Society.find({ city: city._id, isActive: { $ne: false } }).sort({ name: 1 });
+    res.json(societies);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 /* ======================================================
    SPECIAL ROUTES (before generic /:id)
