@@ -16,7 +16,7 @@ const upload = multer({
 
 router.post("/", upload.single("amenityImage"), async (req, res) => {
   try {
-    const { name } = req.body;
+    const name = req.body?.name?.trim();
 
     if (!name) {
       return res.status(400).json({
@@ -25,27 +25,16 @@ router.post("/", upload.single("amenityImage"), async (req, res) => {
       });
     }
 
-    const existing = await Amenity.findOne({
-      name: { $regex: new RegExp(`^${name}$`, "i") },
-    });
-
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: "Amenity already exists",
-      });
-    }
-
-    let imageData = null;
+    let amenityImageData = null;
 
     if (req.file) {
       // Convert buffer to base64
-      const base64String = req.file.buffer.toString('base64');
+      const base64String = req.file.buffer.toString("base64");
       const dataURI = `data:${req.file.mimetype};base64,${base64String}`;
-      
+
       const result = await uploadToCloudinary(dataURI);
 
-      imageData = {
+      amenityImageData = {
         url: result.secure_url,
         publicId: result.public_id,
       };
@@ -53,7 +42,7 @@ router.post("/", upload.single("amenityImage"), async (req, res) => {
 
     const amenity = await Amenity.create({
       name,
-      amenityImage: imageData,
+      amenityImage: amenityImageData,
     });
 
     res.status(201).json({
