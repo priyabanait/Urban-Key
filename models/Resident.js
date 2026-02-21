@@ -2,9 +2,21 @@ import mongoose from "mongoose";
 
 const ResidentSchema = new mongoose.Schema(
   {
-    fullName: { type: String, required: true },
-    email: { type: String },
-    mobile: { type: String, required: false, unique: true },
+    fullName: { 
+  type: String, 
+  required: false 
+},
+
+email: { 
+  type: String 
+},
+
+mobile: { 
+  type: String, 
+  required: false,
+  unique: true,
+  sparse: true   // ⚠️ IMPORTANT
+},
 
     // ✅ Location
     city: { type: String, required: true },
