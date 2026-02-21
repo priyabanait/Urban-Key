@@ -4,6 +4,7 @@ import User from '../models/User.js';
 import Flat from '../models/Flat.js';
 import multer from 'multer';
 import { uploadToCloudinary } from '../config/cloudinary.js';
+import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 const upload = multer({
@@ -15,6 +16,31 @@ const upload = multer({
     cb(null, true);
   }
 });
+
+const SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+/* ================= JWT VERIFICATION MIDDLEWARE ================= */
+const verifyToken = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      message: 'No authorization token provided'
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid or expired token'
+    });
+  }
+};
 /* ================= CREATE RESIDENT ================= */
 router.post(
   '/',
@@ -433,13 +459,23 @@ router.get('/', async (req, res) => {
 
 
 /* ================= GET RESIDENT BY ID ================= */
-router.get('/:id', async (req, res) => {
+router.get('/:id', verifyToken, async (req, res) => {
   try {
     const resident = await Resident.findById(req.params.id).populate('flat', 'flatNo flatType');
+    
     if (!resident) {
       return res.status(404).json({
         success: false,
         message: 'Resident not found'
+      });
+    }
+
+    // Security check: Ensure the authenticated user can only access their own resident record
+    // Match by mobile number (unique field linking User and Resident)
+    if (req.user.mobile !== resident.mobile) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized: You can only access your own resident details'
       });
     }
 
@@ -456,79 +492,267 @@ router.get('/:id', async (req, res) => {
 });
 
 /* ================= UPDATE RESIDENT ================= */
-router.put('/:id', async (req, res) => {
-  try {
-    // Get the current resident to track flat changes
-    const currentResident = await Resident.findById(req.params.id);
-    if (!currentResident) {
-      return res.status(404).json({
+router.put(
+  '/:id',
+  upload.fields([
+    { name: 'photo', maxCount: 1 },
+    { name: 'photoId', maxCount: 1 },
+    { name: 'indexCopy', maxCount: 1 },
+    { name: 'policeVerification', maxCount: 1 },
+    { name: 'rentalAgreement', maxCount: 1 }
+  ]),
+  async (req, res) => {
+    try {
+      // Get the current resident to track flat changes
+      const currentResident = await Resident.findById(req.params.id);
+      if (!currentResident) {
+        return res.status(404).json({
+          success: false,
+          message: 'Resident not found'
+        });
+      }
+
+      const {
+        fullName,
+        city,
+        society,
+        email,
+        phone,
+        mobile,
+        tower,
+        flatNumber,
+        flat: flatId,
+        residentType,
+        ownershipType,
+        occupancyStatus,
+        moveInDate,
+        emergencyContact
+      } = req.body;
+
+      // Use provided values or fall back to existing
+      const finalMobile = mobile || phone || currentResident.mobile;
+      const finalFullName = fullName || currentResident.fullName;
+      const finalCity = city || currentResident.city;
+      const finalSociety = society || currentResident.society;
+      const finalFlatNumber = flatNumber || currentResident.flatNumber;
+
+      let finalOwnership = ownershipType || residentType || currentResident.ownershipType || 'Flat Owner';
+      finalOwnership =
+        finalOwnership.toLowerCase() === 'tenant'
+          ? 'Tenant'
+          : 'Flat Owner';
+
+      /* ================= FILE UPLOAD ================= */
+
+      let uploadedDocuments = currentResident.documents || {};
+      let uploadedPhoto = currentResident.photo || null;
+
+      if (req.files) {
+        if (req.files.photo) {
+          const base64 = req.files.photo[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.photo[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'residents'
+          );
+          uploadedPhoto = result.secure_url;
+        }
+
+        if (req.files.photoId) {
+          const base64 = req.files.photoId[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.photoId[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.photoId = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+
+        if (req.files.indexCopy) {
+          const base64 = req.files.indexCopy[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.indexCopy[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.indexCopy = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+
+        if (req.files.policeVerification) {
+          const base64 = req.files.policeVerification[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.policeVerification[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.policeVerification = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+
+        if (req.files.rentalAgreement) {
+          const base64 = req.files.rentalAgreement[0].buffer.toString('base64');
+          const dataUri = `data:${req.files.rentalAgreement[0].mimetype};base64,${base64}`;
+          const result = await uploadToCloudinary(
+            dataUri,
+            'documents'
+          );
+          uploadedDocuments.rentalAgreement = {
+            url: result.secure_url,
+            publicId: result.public_id,
+            uploadedAt: new Date()
+          };
+        }
+      }
+
+      /* ================= DOCUMENT VALIDATION ================= */
+
+      if (finalOwnership === 'Flat Owner') {
+        if (!uploadedDocuments.photoId || !uploadedDocuments.indexCopy) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'FlatOwner must upload photoId and indexCopy'
+          });
+        }
+      }
+
+      if (finalOwnership === 'Tenant') {
+        if (
+          !uploadedDocuments.photoId ||
+          !uploadedDocuments.policeVerification ||
+          !uploadedDocuments.rentalAgreement
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              'Tenant must upload photoId, policeVerification and rentalAgreement'
+          });
+        }
+      }
+
+      /* ================= RESOLVE FLAT ================= */
+
+      let flatDoc = null;
+
+      if (flatId) {
+        flatDoc = await Flat.findById(flatId)
+          .populate('tower', 'name')
+          .populate('society', 'name');
+      } else if (finalFlatNumber) {
+        flatDoc = await Flat.findOne({
+          flatNo: finalFlatNumber,
+          isActive: true
+        })
+          .populate('tower', 'name')
+          .populate('society', 'name');
+      }
+
+      /* ================= BUILD UPDATE PAYLOAD ================= */
+
+      const updatePayload = {
+        fullName: finalFullName,
+        email: email || currentResident.email,
+        mobile: finalMobile,
+        city: finalCity,
+        society: finalSociety,
+        tower: tower || currentResident.tower,
+        flatNumber: finalFlatNumber,
+        ownershipType: finalOwnership,
+        occupancyStatus:
+          occupancyStatus || currentResident.occupancyStatus || 'Currently Residing',
+        moveInDate: moveInDate || currentResident.moveInDate,
+        photo: uploadedPhoto,
+        documents: uploadedDocuments
+      };
+
+      if (emergencyContact) {
+        updatePayload.emergencyContact =
+          typeof emergencyContact === 'object'
+            ? emergencyContact
+            : { phone: emergencyContact };
+      }
+
+      const oldFlatId = currentResident.flat;
+      const newFlatId = flatDoc?._id || flatId;
+
+      if (flatDoc) {
+        updatePayload.flat = flatDoc._id;
+        updatePayload.flatNumber = flatDoc.flatNo;
+      }
+
+      /* ================= UPDATE RESIDENT ================= */
+
+      const updatedResident = await Resident.findByIdAndUpdate(
+        req.params.id,
+        updatePayload,
+        { new: true, runValidators: true }
+      );
+
+      /* ================= HANDLE FLAT OCCUPANCY CHANGES ================= */
+
+      try {
+        // If flat changed, update status
+        if (oldFlatId && newFlatId && oldFlatId.toString() !== newFlatId.toString()) {
+          // Old flat becomes vacant
+          await Flat.findByIdAndUpdate(oldFlatId, { 
+            resident: null,
+            occupancyStatus: 'Vacant'
+          });
+          console.log(`✅ Flat (${oldFlatId}) marked as VACANT (resident reassigned)`);
+
+          // New flat becomes occupied
+          await Flat.findByIdAndUpdate(newFlatId, { 
+            resident: updatedResident._id,
+            occupancyStatus: 'Occupied'
+          });
+          console.log(`✅ Flat (${newFlatId}) marked as OCCUPIED (resident: ${updatedResident.fullName})`);
+        } 
+        // If new flat assigned (was previously none)
+        else if (!oldFlatId && newFlatId) {
+          await Flat.findByIdAndUpdate(newFlatId, { 
+            resident: updatedResident._id,
+            occupancyStatus: 'Occupied'
+          });
+          console.log(`✅ Flat (${newFlatId}) marked as OCCUPIED (resident: ${updatedResident.fullName})`);
+        }
+        // If flat removed (was previously assigned)
+        else if (oldFlatId && !newFlatId) {
+          await Flat.findByIdAndUpdate(oldFlatId, { 
+            resident: null,
+            occupancyStatus: 'Vacant'
+          });
+          console.log(`✅ Flat (${oldFlatId}) marked as VACANT (resident unassigned)`);
+        }
+      } catch (flatErr) {
+        console.error('Error updating flat occupancy:', flatErr);
+        // Don't fail the request if flat update fails
+      }
+
+      return res.json({
+        success: true,
+        message: 'Resident updated successfully',
+        data: updatedResident
+      });
+    } catch (error) {
+      console.error('UPDATE RESIDENT ERROR:', error);
+      return res.status(500).json({
         success: false,
-        message: 'Resident not found'
+        message: error.message || 'Update failed'
       });
     }
-
-    const oldFlatId = currentResident.flat;
-    const newFlatId = req.body.flat;
-
-    // Update the resident
-    const updatedResident = await Resident.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-
-    // Handle flat occupancy status changes
-    try {
-      // If flat changed, update status
-      if (oldFlatId && newFlatId && oldFlatId.toString() !== newFlatId.toString()) {
-        // Old flat becomes vacant
-        await Flat.findByIdAndUpdate(oldFlatId, { 
-          resident: null,
-          occupancyStatus: 'Vacant'
-        });
-        console.log(`✅ Flat (${oldFlatId}) marked as VACANT (resident reassigned)`);
-
-        // New flat becomes occupied
-        await Flat.findByIdAndUpdate(newFlatId, { 
-          resident: updatedResident._id,
-          occupancyStatus: 'Occupied'
-        });
-        console.log(`✅ Flat (${newFlatId}) marked as OCCUPIED (resident: ${updatedResident.fullName})`);
-      } 
-      // If new flat assigned (was previously none)
-      else if (!oldFlatId && newFlatId) {
-        await Flat.findByIdAndUpdate(newFlatId, { 
-          resident: updatedResident._id,
-          occupancyStatus: 'Occupied'
-        });
-        console.log(`✅ Flat (${newFlatId}) marked as OCCUPIED (resident: ${updatedResident.fullName})`);
-      }
-      // If flat removed (was previously assigned)
-      else if (oldFlatId && !newFlatId) {
-        await Flat.findByIdAndUpdate(oldFlatId, { 
-          resident: null,
-          occupancyStatus: 'Vacant'
-        });
-        console.log(`✅ Flat (${oldFlatId}) marked as VACANT (resident unassigned)`);
-      }
-    } catch (flatErr) {
-      console.error('Error updating flat occupancy:', flatErr);
-      // Don't fail the request if flat update fails
-    }
-
-    return res.json({
-      success: true,
-      message: 'Resident updated successfully',
-      data: updatedResident
-    });
-  } catch (error) {
-    console.error('UPDATE RESIDENT ERROR:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Update failed'
-    });
   }
-});
+);
 
 /* ================= DELETE RESIDENT ================= */
 router.delete('/:id', async (req, res) => {
