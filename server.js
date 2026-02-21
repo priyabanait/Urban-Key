@@ -38,6 +38,7 @@ import dailyHelpRoutes from './routes/dailyHelpRoutes.js';
 import addressRoutes from './routes/addressRoutes.js';
 import adminStatsRoutes from './routes/adminStatsRoutes.js';
 import addmaintenancecostRoutes from './routes/addmaintenancecostRoutes.js';
+import AmenityName from './routes/amenityNameRoute.js'
 // DB connection helper
 import connectDB from './config/db.js';
 
@@ -173,7 +174,7 @@ app.use((req, res, next) => {
 
 app.use('/api/services', serviceRoutes);
 app.use('/api/advertisementSlider', advertisementSliderRoutes);
-
+app.use("/api/Amenityname", AmenityName);
 app.use('/api/sliders', sliderRoutes);
 app.use('/api/cities', citiesRouter);
 app.use('/api/societies', societyRoutes);

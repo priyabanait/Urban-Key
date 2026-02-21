@@ -1,23 +1,20 @@
 import express from 'express';
 import Amenity from '../models/Amenity.js';
-import Society from '../models/Society.js';
-import { authenticate } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
 /**
- * Get all amenities - with filtering by city and society
+ * GET ALL AMENITIES
  * GET /api/amenities?cityName=xxx&societyId=yyy
  */
 router.get('/', async (req, res) => {
   try {
     const { societyId, cityName } = req.query;
 
-    // Build query filters
     const query = {};
     if (societyId) query.societyId = societyId;
     if (cityName) query.cityName = cityName;
-    
+
     const amenities = await Amenity.find(query)
       .populate('society', 'name address')
       .sort({ name: 1 });
@@ -27,8 +24,8 @@ router.get('/', async (req, res) => {
       data: amenities,
       count: amenities.length
     });
+
   } catch (error) {
-    console.error('Error fetching amenities:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching amenities',
@@ -37,9 +34,9 @@ router.get('/', async (req, res) => {
   }
 });
 
+
 /**
- * Get a single amenity by ID
- * GET /api/amenities/:id
+ * GET SINGLE AMENITY
  */
 router.get('/:id', async (req, res) => {
   try {
@@ -57,8 +54,8 @@ router.get('/:id', async (req, res) => {
       success: true,
       data: amenity
     });
+
   } catch (error) {
-    console.error('Error fetching amenity:', error);
     res.status(500).json({
       success: false,
       message: 'Error fetching amenity',
@@ -67,24 +64,21 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+
 /**
- * Search amenities by city and society
- * GET /api/amenities/search?cityName=xxx&societyId=yyy&keyword=zzz
+ * SEARCH AMENITY
  */
 router.get('/search/filter', async (req, res) => {
   try {
     const { cityName, societyId, keyword } = req.query;
 
-    // Build query filters
     const query = {};
+
     if (cityName) query.cityName = cityName;
     if (societyId) query.societyId = societyId;
+
     if (keyword) {
-      query.$or = [
-        { name: { $regex: keyword, $options: 'i' } },
-        { type: { $regex: keyword, $options: 'i' } },
-        { description: { $regex: keyword, $options: 'i' } }
-      ];
+      query.name = { $regex: keyword, $options: 'i' };
     }
 
     const amenities = await Amenity.find(query)
@@ -94,11 +88,10 @@ router.get('/search/filter', async (req, res) => {
     res.json({
       success: true,
       data: amenities,
-      count: amenities.length,
-      filters: { cityName, societyId, keyword }
+      count: amenities.length
     });
+
   } catch (error) {
-    console.error('Error searching amenities:', error);
     res.status(500).json({
       success: false,
       message: 'Error searching amenities',
@@ -107,36 +100,30 @@ router.get('/search/filter', async (req, res) => {
   }
 });
 
+
 /**
- * Create a new amenity
- * POST /api/amenities
+ * CREATE AMENITY
  */
 router.post('/', async (req, res) => {
   try {
     const {
       name,
-      type,
-      description,
-      societyId,
       cityName,
-      location,
+      societyId,
       capacity,
       timings,
       amenityImage,
-      bookingRequired,
       isActive,
       bookingRules
     } = req.body;
 
-    // ✅ Validate required fields
-    if (!name || !type) {
+    if (!name) {
       return res.status(400).json({
         success: false,
-        message: 'Name and type are required'
+        message: 'Name is required'
       });
     }
 
-    // ✅ Validate that either cityName or societyId is provided
     if (!cityName && !societyId) {
       return res.status(400).json({
         success: false,
@@ -144,33 +131,27 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // ✅ Check if amenity already exists in the same city/society
     const existingAmenity = await Amenity.findOne({
       name: { $regex: new RegExp(`^${name}$`, 'i') },
-      ...(cityName ? { cityName: cityName } : {}),
-      ...(societyId ? { societyId: societyId } : {})
+      ...(cityName ? { cityName } : {}),
+      ...(societyId ? { societyId } : {})
     });
 
     if (existingAmenity) {
       return res.status(400).json({
         success: false,
-        message: 'Amenity with this name already exists in this city/society'
+        message: 'Amenity already exists'
       });
     }
 
-    // ✅ Create amenity
     const amenity = await Amenity.create({
       name,
-      type: type.trim(),
-      description,
       cityName,
       societyId,
       society: societyId || null,
-      location,
       capacity,
       timings,
       amenityImage,
-      bookingRequired: bookingRequired ?? true,
       isActive: isActive ?? true,
       bookingRules: bookingRules || {}
     });
@@ -182,7 +163,6 @@ router.post('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error creating amenity:', error);
     res.status(500).json({
       success: false,
       message: 'Error creating amenity',
@@ -193,16 +173,15 @@ router.post('/', async (req, res) => {
 
 
 /**
- * Update an amenity
- * PUT /api/amenities/:id
+ * UPDATE AMENITY
  */
 router.put('/:id', async (req, res) => {
   try {
     const {
       name,
-      description,
-      location,
-      bookingRequired,
+      capacity,
+      timings,
+      amenityImage,
       isActive,
       bookingRules
     } = req.body;
@@ -216,11 +195,10 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Update fields
     if (name !== undefined) amenity.name = name;
-    if (description !== undefined) amenity.description = description;
-    if (location !== undefined) amenity.location = location;
-    if (bookingRequired !== undefined) amenity.bookingRequired = bookingRequired;
+    if (capacity !== undefined) amenity.capacity = capacity;
+    if (timings !== undefined) amenity.timings = timings;
+    if (amenityImage !== undefined) amenity.amenityImage = amenityImage;
     if (isActive !== undefined) amenity.isActive = isActive;
     if (bookingRules !== undefined) amenity.bookingRules = bookingRules;
 
@@ -231,8 +209,8 @@ router.put('/:id', async (req, res) => {
       message: 'Amenity updated successfully',
       data: amenity
     });
+
   } catch (error) {
-    console.error('Error updating amenity:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating amenity',
@@ -241,9 +219,9 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+
 /**
- * Delete an amenity
- * DELETE /api/amenities/:id
+ * DELETE AMENITY
  */
 router.delete('/:id', async (req, res) => {
   try {
@@ -260,8 +238,8 @@ router.delete('/:id', async (req, res) => {
       success: true,
       message: 'Amenity deleted successfully'
     });
+
   } catch (error) {
-    console.error('Error deleting amenity:', error);
     res.status(500).json({
       success: false,
       message: 'Error deleting amenity',

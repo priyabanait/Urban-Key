@@ -6,15 +6,8 @@ const amenitySchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  type: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  description: {
-    type: String,
-    trim: true
-  },
+ 
+  
   cityName: {
     type: String,
     trim: true
@@ -28,14 +21,15 @@ const amenitySchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  location: String,
+ 
   capacity: Number,
   timings: String,
-  amenityImage: String,
-  bookingRequired: {
-    type: Boolean,
-    default: true
-  },
+  amenityImage: {
+  url: { type: String },
+  publicId: { type: String },
+  uploadedAt: { type: Date, default: Date.now }
+},
+ 
   isActive: {
     type: Boolean,
     default: true

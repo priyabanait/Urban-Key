@@ -4,17 +4,17 @@ const ResidentSchema = new mongoose.Schema(
   {
     fullName: { type: String, required: true },
     email: { type: String },
-    mobile: { type: String, required: true, unique: true },
+    mobile: { type: String, required: false, unique: true },
 
     // ✅ Location
     city: { type: String, required: true },
     society: {
       type: mongoose.Schema.Types.Mixed, // Can be string (legacy) or ObjectId
-      required: true
+      required: false
     },
 
     tower: { type: String },
-    flatNumber: { type: String, required: true },
+    flatNumber: { type: String, required: false },
     flat: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Flat',
@@ -23,7 +23,7 @@ const ResidentSchema = new mongoose.Schema(
 
     ownershipType: {
       type: String,
-      enum: ["Owner", "Tenant", "Renting with other flatmates"],
+      enum: ["Flat Owner", "Tenant", "Renting with other flatmates"],
       default: "Owner",
     },
  occupancyStatus: {
@@ -64,7 +64,7 @@ const ResidentSchema = new mongoose.Schema(
   }
 },
 
-    isActive: { type: Boolean, default: true },
+   isActive: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

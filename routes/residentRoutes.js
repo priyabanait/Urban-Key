@@ -26,7 +26,7 @@ router.post('/', async (req, res) => {
       occupancyStatus,
       moveInDate,
       emergencyContact,
-      idProof,
+      documents,   // ✅ important change
       photo
     } = req.body;
 
@@ -34,10 +34,9 @@ router.post('/', async (req, res) => {
 
     const finalMobile = mobile || phone;
 
-    // Normalize ownership type
-    let finalOwnership = ownershipType || residentType || 'Owner';
+    let finalOwnership = ownershipType || residentType || 'Flat Owner';
     finalOwnership =
-      finalOwnership.toLowerCase() === 'tenant' ? 'Tenant' : 'Owner';
+      finalOwnership.toLowerCase() === 'tenant' ? 'Tenant' : 'Flat Owner';
 
     /* -------- REQUIRED FIELD CHECK -------- */
     if (!fullName || !finalMobile || !city || !society || !flatNumber) {
@@ -45,6 +44,30 @@ router.post('/', async (req, res) => {
         success: false,
         message: 'fullName, mobile, city, society and flatNumber are required'
       });
+    }
+
+    /* -------- DOCUMENT VALIDATION BASED ON OWNERSHIP -------- */
+
+    if (finalOwnership === 'Flat Owner') {
+      if (!documents?.photoId || !documents?.indexCopy) {
+        return res.status(400).json({
+          success: false,
+          message: 'FlatOwner must upload photoId and indexCopy'
+        });
+      }
+    }
+
+    if (finalOwnership === 'Tenant') {
+      if (
+        !documents?.photoId ||
+        !documents?.policeVerification ||
+        !documents?.rentalAgreement
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tenant must upload photoId, policeVerification and rentalAgreement'
+        });
+      }
     }
 
     /* -------- FIND USER (OPTIONAL) -------- */
@@ -64,19 +87,21 @@ router.post('/', async (req, res) => {
       });
     }
 
-    /* -------- RESOLVE FLAT (if provided) -------- */
+    /* -------- RESOLVE FLAT -------- */
     let flatDoc = null;
     try {
       if (flatId) {
-        flatDoc = await Flat.findById(flatId).populate('tower', 'name').populate('society', 'name');
+        flatDoc = await Flat.findById(flatId)
+          .populate('tower', 'name')
+          .populate('society', 'name');
       } else if (flatNumber) {
-        // Try to find flat by flatNumber and society name (if provided)
-        flatDoc = await Flat.findOne({ flatNo: flatNumber, isActive: true }).populate('tower', 'name').populate('society', 'name');
-        // If society provided as name, ensure match
+        flatDoc = await Flat.findOne({ flatNo: flatNumber, isActive: true })
+          .populate('tower', 'name')
+          .populate('society', 'name');
+
         if (flatDoc && society) {
           const socName = (flatDoc.society && flatDoc.society.name) || '';
           if (socName.toString().toLowerCase() !== society.toString().toLowerCase()) {
-            // mismatch - ignore flatDoc
             flatDoc = null;
           }
         }
@@ -98,45 +123,45 @@ router.post('/', async (req, res) => {
       ownershipType: finalOwnership,
       occupancyStatus: occupancyStatus || 'Currently Residing',
       moveInDate,
-      idProof,
-      photo
+      photo,
+      documents   // ✅ save full documents object
     };
 
-    // Handle emergencyContact as nested object
     if (emergencyContact) {
-      if (typeof emergencyContact === 'object') {
-        residentPayload.emergencyContact = emergencyContact;
-      } else {
-        // Fallback if sent as string
-        residentPayload.emergencyContact = { phone: emergencyContact };
-      }
+      residentPayload.emergencyContact =
+        typeof emergencyContact === 'object'
+          ? emergencyContact
+          : { phone: emergencyContact };
     }
 
     if (flatDoc) {
       residentPayload.flat = flatDoc._id;
       residentPayload.flatNumber = flatDoc.flatNo;
-      // if resident tower not provided, use flat's tower name (if populated)
-      if (!residentPayload.tower && flatDoc.tower) residentPayload.tower = flatDoc.tower.name || flatDoc.tower;
-      // if society not provided, use flat's society name
-      if (!residentPayload.society && flatDoc.society) residentPayload.society = flatDoc.society.name || flatDoc.society;
+
+      if (!residentPayload.tower && flatDoc.tower)
+        residentPayload.tower = flatDoc.tower.name || flatDoc.tower;
+
+      if (!residentPayload.society && flatDoc.society)
+        residentPayload.society = flatDoc.society.name || flatDoc.society;
     }
 
     const resident = await Resident.create(residentPayload);
 
-    // Link resident back to flat and mark as occupied
+    /* -------- LINK FLAT -------- */
     try {
       if (flatDoc) {
-        await Flat.findByIdAndUpdate(flatDoc._id, { 
+        await Flat.findByIdAndUpdate(flatDoc._id, {
           resident: resident._id,
           occupancyStatus: 'Occupied'
         });
-        console.log(`✅ Flat ${flatDoc.flatNo} marked as OCCUPIED (Resident: ${resident.fullName})`);
+
+        console.log(`✅ Flat ${flatDoc.flatNo} marked as OCCUPIED`);
       }
     } catch (linkErr) {
       console.error('Failed to link resident to flat:', linkErr);
     }
 
-    /* -------- UPDATE USER (IF EXISTS) -------- */
+    /* -------- UPDATE USER -------- */
     if (user) {
       user.registrationCompleted = true;
       user.role = 'resident';
@@ -148,6 +173,7 @@ router.post('/', async (req, res) => {
       message: 'Resident added successfully',
       data: resident
     });
+
   } catch (error) {
     console.error('CREATE RESIDENT ERROR:', error);
     return res.status(500).json({
