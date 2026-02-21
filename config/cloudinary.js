@@ -28,8 +28,8 @@ if (isConfigured) {
 
 export const uploadToCloudinary = async (base64String, publicId) => {
   if (!isConfigured) {
-    console.warn('uploadToCloudinary called but Cloudinary is not configured — returning empty result');
-    return { secure_url: '', public_id: null };
+    console.warn('uploadToCloudinary called but Cloudinary is not configured — returning mock result');
+    return { secure_url: `mock://uploaded/${Date.now()}`, public_id: `mock_${Date.now()}` };
   }
 
   try {
