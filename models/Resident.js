@@ -36,7 +36,7 @@ mobile: {
     ownershipType: {
       type: String,
       enum: ["Flat Owner", "Tenant", "Renting with other flatmates"],
-      default: "Owner",
+      default: "Flat Owner",
     },
  occupancyStatus: {
       type: String,
